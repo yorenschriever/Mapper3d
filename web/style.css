@@ -1,0 +1,7 @@
+body { font: 16px system-ui, sans-serif; background: #141a23; color: #eef4fa; margin: 0; }
+main { max-width: 900px; margin: auto; padding: 1rem; }
+.controls { display: flex; flex-wrap: wrap; gap: 1rem; align-items: center; }
+button, input { font: inherit; }
+video { width: 100%; max-height: 60vh; background: black; }
+canvas { width: 100%; height: auto; display: block; cursor: crosshair; }
+#result { font-weight: bold; color: #82e0aa; }

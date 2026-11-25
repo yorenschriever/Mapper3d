@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mapper3D beacon tester</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main>
+    <h1>Mapper3D beacon tester</h1>
+    <p>Milestone 1: test the optical ID of one LED. This is not yet a 3D scanner.</p>
+    <div class="controls">
+      <button id="camera">Start camera</button>
+      <label>Or select a recording <input id="file" type="file" accept="video/*"></label>
+    </div>
+    <p>Tap an LED to track it. Keep it visible for at least 10 seconds, and avoid overlapping lights.</p>
+    <video id="video" playsinline muted controls></video>
+    <canvas id="canvas"></canvas>
+    <p id="status" role="status">Choose a camera or video.</p>
+    <p id="result"></p>
+  </main>
+  <script type="module" src="app.js"></script>
+</body>
+</html>

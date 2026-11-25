@@ -1,0 +1,18 @@
+menu "Mapper3D beacon"
+
+config MAPPER_LED_COUNT
+    int "Number of LEDs"
+    range 1 10000
+    default 100
+
+config MAPPER_LED_GPIO
+    int "LED data GPIO"
+    range 0 39
+    default 18
+
+config MAPPER_LED_BRIGHTNESS
+    int "LED channel brightness"
+    range 1 255
+    default 32
+
+endmenu
