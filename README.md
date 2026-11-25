@@ -1,8 +1,9 @@
-# Mapper3D: beacon prototype
+# Mapper3D: tracking prototype
 
-This is the first milestone: ESP32 beacon firmware and a browser tool for testing
-one LED's optical ID. It does **not** yet reconstruct 3D coordinates, track all
-LEDs, show scan coverage, or export a header.
+This prototype combines ESP32 beacon firmware with browser-side camera
+tracking and experimental triangulation of one selected LED. It does **not**
+yet track all LEDs automatically, show a 3D preview or scan coverage, or export
+a header. Its output is not calibrated or verified for accuracy.
 
 ## Firmware
 
@@ -30,12 +31,41 @@ timing at high LED counts still need hardware testing.
 
 ## Browser test
 
+Install the browser dependencies once:
+
+```sh
+npm install
+npm run setup:slam
+```
+
+The npm install copies the Apache-2.0-licensed OpenCV.js runtime into the web
+directory. The second command downloads and SHA-256-verifies the ArgusAR
+JavaScript, WebAssembly and license files. They are served locally afterwards;
+video is processed locally and is not sent to ArgusAR or another service.
+ArgusAR is GPLv3-licensed.
+The exact upstream source and build instructions are available at
+[ArgusAR revision 43cb262](https://github.com/WangZhewei1027/ArgusAR/tree/43cb262cd32fe5f027c029dc6621694d4eff0d35).
+Review the GPL and upstream third-party licenses before distributing the app.
+
 Serve `web/` over HTTPS on the phone; camera access requires a secure context.
 For local desktop development, `python3 -m http.server 8000 --directory web`
 provides a localhost server. Open the page, start the camera or choose a video,
-then tap an LED in the image below the video. The tool attempts to follow that
-one LED and shows its ID and reported strip count after a valid decode. Tap
-again to start over. Seeking a video resets the decoder.
+move sideways to initialize the camera tracker, then tap an LED in the image
+below the video. The tool attempts to follow that one LED and shows its ID and
+reported strip count after a valid decode. Keep moving to obtain separated
+viewpoints. When there are enough consistent views it shows an experimental
+position in arbitrary units relative to the **first successfully tracked** camera
+view: X right, Y down, Z forward. The first video frame cannot be used as a
+reference if tracking has not initialized yet. Tap again to start over.
+Pause and seek a recording to select a specific frame; seeking resets the
+tracker and decoder. If tracking resets or closes a loop, earlier 3D
+observations are discarded rather than mixing coordinate systems.
+
+The horizontal field-of-view input is an estimate, not camera calibration.
+It defaults to 65 degrees; set it before starting a source. Incorrect focal
+length, lens distortion, tracker drift and imprecise LED centroids can
+significantly distort reconstructed positions. No accuracy or scale guarantee
+is implied.
 
 For best results, use moderate diffuse ambient light, keep the surroundings
 textured, avoid saturated white LED highlights, move slowly and keep the chosen
@@ -46,9 +76,11 @@ before relying on its results.
 
 Run `npm test` from the project root. Tests require Node.js, a C compiler and
 FFmpeg with `libx264`. They compile the actual firmware encoder and exercise
-the JavaScript decoder, including a generated H.264 video file. Physical
-camera behavior, ESP-IDF builds, real-video tracking and 3D accuracy are not
-validated by these synthetic tests.
+the JavaScript decoder, including a generated H.264 video file.
+If `test/test_data/mapper3d_test.mp4` is present, an additional regression test
+tracks and decodes one LED from that recording; the test is skipped otherwise.
+Phone performance, ESP-IDF builds and 3D accuracy are not validated by these
+tests.
 
 ## Optical protocol v1
 

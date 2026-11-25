@@ -15,4 +15,16 @@ config MAPPER_LED_BRIGHTNESS
     range 1 255
     default 32
 
+config MAPPER_LED_COLOR_ORDER
+    string "LED color order (RGB, GRB, BGR, BRG, RBG, GBR)"
+    default "GRB"
+    help
+        The color order for the LEDs. Use the same order as your LED strip (typically GRB for WS2812).
+
+config MAPPER_STARTUP_FLASH_COLORS
+    bool "Flash R, G, B on startup for 350ms each"
+    default y
+    help
+        Flash all LEDs in Red, Green, Blue sequence on startup to verify correct color order.
+
 endmenu

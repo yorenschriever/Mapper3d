@@ -3,22 +3,27 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Mapper3D beacon tester</title>
+  <title>Mapper3D tracking prototype</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <main>
-    <h1>Mapper3D beacon tester</h1>
-    <p>Milestone 1: test the optical ID of one LED. This is not yet a 3D scanner.</p>
+    <h1>Mapper3D tracking prototype</h1>
+    <p>Experimental: track and triangulate one selected LED. This is not yet the full 3D scanner.</p>
     <div class="controls">
       <button id="camera">Start camera</button>
       <label>Or select a recording <input id="file" type="file" accept="video/*"></label>
+      <label>Estimated horizontal camera field of view (degrees)
+        <input id="fov" type="number" min="30" max="120" value="65">
+      </label>
     </div>
-    <p>Tap an LED to track it. Keep it visible for at least 10 seconds, and avoid overlapping lights.</p>
+    <p>Move sideways to initialize camera tracking, then tap an LED below. Keep it visible while moving around it; avoid overlapping lights.</p>
     <video id="video" playsinline muted controls></video>
     <canvas id="canvas"></canvas>
     <p id="status" role="status">Choose a camera or video.</p>
     <p id="result"></p>
+    <p id="pose-status" role="status">Camera tracking has not started.</p>
+    <p id="position"></p>
   </main>
   <script type="module" src="app.js"></script>
 </body>

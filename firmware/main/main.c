@@ -1,5 +1,6 @@
 #include <inttypes.h>
 #include <stdlib.h>
+#include <string.h>
 #include "esp_check.h"
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -13,6 +14,51 @@ static const uint8_t colors[6][3] = {
     {1, 0, 0}, {0, 1, 0}, {0, 0, 1},
     {1, 1, 0}, {0, 1, 1}, {1, 0, 1}
 };
+
+typedef struct {
+    uint8_t r, g, b;
+} rgb_color_t;
+
+static rgb_color_t reorder_color(rgb_color_t rgb, const char *order) {
+    rgb_color_t result = {0, 0, 0};
+    for (int i = 0; i < 3; i++) {
+        switch (order[i]) {
+            case 'R': result.r = (i == 0) ? rgb.r : (i == 1) ? rgb.g : rgb.b; break;
+            case 'G': result.g = (i == 0) ? rgb.r : (i == 1) ? rgb.g : rgb.b; break;
+            case 'B': result.b = (i == 0) ? rgb.r : (i == 1) ? rgb.g : rgb.b; break;
+        }
+    }
+    return result;
+}
+
+static void startup_flash_sequence(led_strip_handle_t strip, unsigned int count) {
+    const uint8_t flash_colors[3][3] = {
+        {255, 0, 0},    // Red
+        {0, 255, 0},    // Green
+        {0, 0, 255}     // Blue
+    };
+    const char *color_order = CONFIG_MAPPER_LED_COLOR_ORDER;
+    
+    for (int color_idx = 0; color_idx < 3; color_idx++) {
+        rgb_color_t rgb = {flash_colors[color_idx][0], flash_colors[color_idx][1], flash_colors[color_idx][2]};
+        rgb_color_t ordered = reorder_color(rgb, color_order);
+        
+        for (unsigned int i = 0; i < count; i++) {
+            ESP_ERROR_CHECK(led_strip_set_pixel(strip, i,
+                ordered.r * CONFIG_MAPPER_LED_BRIGHTNESS / 255,
+                ordered.g * CONFIG_MAPPER_LED_BRIGHTNESS / 255,
+                ordered.b * CONFIG_MAPPER_LED_BRIGHTNESS / 255));
+        }
+        ESP_ERROR_CHECK(led_strip_refresh(strip));
+        vTaskDelay(pdMS_TO_TICKS(350));
+    }
+    
+    // Turn off all LEDs after flash sequence
+    for (unsigned int i = 0; i < count; i++) {
+        ESP_ERROR_CHECK(led_strip_set_pixel(strip, i, 0, 0, 0));
+    }
+    ESP_ERROR_CHECK(led_strip_refresh(strip));
+}
 
 void app_main(void)
 {
@@ -44,6 +90,12 @@ void app_main(void)
     };
     led_strip_handle_t strip;
     ESP_ERROR_CHECK(led_strip_new_rmt_device(&strip_config, &rmt_config, &strip));
+    
+    #if CONFIG_MAPPER_STARTUP_FLASH_COLORS
+    ESP_LOGI(TAG, "Running startup flash sequence (R, G, B for 350ms each)");
+    startup_flash_sequence(strip, count);
+    #endif
+    
     ESP_LOGI(TAG, "Encoding %u LEDs; symbol period %" PRId64 " ms", count, period_us / 1000);
     int64_t deadline = esp_timer_get_time();
     for (unsigned int position = 0;; position = (position + 1) % MAPPER_FRAME_SYMBOLS) {
