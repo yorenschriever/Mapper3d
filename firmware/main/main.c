@@ -10,9 +10,9 @@
 #include "protocol.h"
 
 static const char *TAG = "mapper3d";
-static const uint8_t colors[6][3] = {
+static const uint8_t colors[MAPPER_COLORS][3] = {
     {1, 0, 0}, {0, 1, 0}, {0, 0, 1},
-    {1, 1, 0}, {0, 1, 1}, {1, 0, 1}
+    {1, 1, 0}, {1, 0, 1}
 };
 
 typedef struct {

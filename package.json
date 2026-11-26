@@ -8,6 +8,7 @@
   "scripts": {
     "postinstall": "node scripts/setup-opencv.js",
     "setup:slam": "node scripts/setup-slam.js",
+    "serve": "node scripts/serve.js",
     "test": "node --test"
   }
 }

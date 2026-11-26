@@ -9,16 +9,23 @@
 <body>
   <main>
     <h1>Mapper3D tracking prototype</h1>
-    <p>Experimental: track and triangulate one selected LED. This is not yet the full 3D scanner.</p>
+    <p>Experimental tracking preview. This is not yet the full 3D scanner.</p>
     <div class="controls">
       <button id="camera">Start camera</button>
       <label>Or select a recording <input id="file" type="file" accept="video/*"></label>
-      <label>Estimated horizontal camera field of view (degrees)
+      <label>Tracking mode
+        <select id="mode">
+          <option value="automatic">Automatic preview (experimental)</option>
+          <option value="manual">Select one LED</option>
+        </select>
+      </label>
+      <label>Single-LED 3D: estimated horizontal camera field of view (degrees)
         <input id="fov" type="number" min="30" max="120" value="65">
       </label>
     </div>
-    <p>Move sideways to initialize camera tracking, then tap an LED below. Keep it visible while moving around it; avoid overlapping lights.</p>
+    <p id="instructions">Cyan marks are detected candidates; dashed marks are predicted positions; green labels are decoded IDs. Marks and IDs may be wrong; saturated or overlapping lights can be missed.</p>
     <video id="video" playsinline muted controls></video>
+    <p>Tracking preview:</p>
     <canvas id="canvas"></canvas>
     <p id="status" role="status">Choose a camera or video.</p>
     <p id="result"></p>

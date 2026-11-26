@@ -5,3 +5,5 @@ web/vendor/opencv/
 node_modules/
 test_data
 
+web/model.json
+.certs/

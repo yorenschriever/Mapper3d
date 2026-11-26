@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mapper3D LED annotation</title>
+  <link rel="stylesheet" href="style.css">
+  <style>
+    main { max-width: none; }
+    #stage { overflow: auto; max-height: 75vh; border: 1px solid #456; margin-top: .5rem; }
+    #stage canvas { width: auto; max-width: none; }
+    #stage canvas { cursor: crosshair; }
+    .controls { margin: .5rem 0; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>LED annotation</h1>
+    <p>Load a recording from a fixed camera, pick a frame in which the LEDs are clearly visible, then click the LEDs in index order. The result is saved as a ground-truth JSON file for tests.</p>
+    <div class="controls">
+      <label>Recording <input id="file" type="file" accept="video/*"></label>
+      <label>Frame step (s) <input id="step" type="number" value="0.033" step="0.001" min="0.001" style="width:5rem"></label>
+      <button id="back">&larr; Step</button>
+      <button id="forward">Step &rarr;</button>
+    </div>
+    <video id="video" playsinline muted controls style="max-height:30vh"></video>
+    <div class="controls">
+      <button id="capture">Use current frame</button>
+      <label>First index <input id="start" type="number" value="0" min="0" style="width:5rem"></label>
+      <label>Strip LED count <input id="count" type="number" min="1" style="width:6rem"></label>
+      <label>Zoom <input id="zoom" type="range" min="0.25" max="6" step="0.25" value="1"></label>
+      <label><input id="snap" type="checkbox" checked> Snap to brightest pixel</label>
+    </div>
+    <div class="controls">
+      <button id="undo">Undo</button>
+      <button id="skip">Skip index (not visible)</button>
+      <button id="clear">Clear</button>
+      <button id="save">Save JSON</button>
+      <span id="status" role="status">Choose a recording.</span>
+    </div>
+    <div id="stage"><canvas id="canvas"></canvas></div>
+  </main>
+  <script type="module" src="annotate.js"></script>
+</body>
+</html>

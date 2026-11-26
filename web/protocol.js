@@ -51,7 +51,7 @@ function crc8(payload) {
   return crc;
 }
 
-function unpack(words) {
+function unpackWords(words) {
   let message = 0n;
   for (const word of words.slice(0, 8)) message = (message << 5n) | BigInt(word);
   if (message >> 36n) return null;
@@ -62,16 +62,54 @@ function unpack(words) {
   return { index, count };
 }
 
+function unpack(words, received, errorBudget) {
+  const data = words.slice(0, 8);
+  const ambiguous = [];
+  for (let i = 1; i < data.length; i++) {
+    if (data[i] === 0) {
+      if (received[i] === 31) data[i] = 31;
+      ambiguous.push(i);
+    }
+  }
+  const preferred = unpackWords(data);
+  if (preferred) return { result: preferred, extraErrors: 0 };
+  let result = null;
+  for (let mask = 1; mask < 2 ** ambiguous.length; mask++) {
+    const candidate = data.slice();
+    for (let bit = 0; bit < ambiguous.length; bit++) {
+      if (mask & (1 << bit)) {
+        const index = ambiguous[bit];
+        candidate[index] = candidate[index] === 0 ? 31 : 0;
+      }
+    }
+    const extraErrors = ambiguous.filter(i =>
+      (received[i] === 0 || received[i] === 31) && candidate[i] !== received[i]).length;
+    if (extraErrors > errorBudget) continue;
+    const decoded = unpackWords(candidate);
+    if (!decoded) continue;
+    if (result) return null;
+    result = { result: decoded, extraErrors };
+  }
+  return result;
+}
+
 export function decodeFrame(symbols) {
   if (symbols.length !== FRAME_SYMBOLS || symbols.slice(0, 4).some((value, i) => value !== (i === 3 ? 4 : 5))) return null;
   const words = [];
   const erasures = [];
+  const received = [];
   for (let i = 0; i < 12; i++) {
     const a = symbols[4 + i * 2], b = symbols[5 + i * 2];
-    if (!Number.isInteger(a) || !Number.isInteger(b) || a < 0 || a > 5 || b < 0 || b > 5 || a * 6 + b >= 31) {
+    const value = a * 6 + b;
+    if (!Number.isInteger(a) || !Number.isInteger(b) || a < 0 || a > 5 || b < 0 || b > 5 ||
+      value > 31 || (i >= 8 && value === 31)) {
       words.push(0);
+      received.push(null);
       erasures.push(i);
-    } else words.push(a * 6 + b);
+    } else {
+      words.push(value % MODULUS);
+      received.push(value);
+    }
   }
   if (erasures.length > 4) return null;
   const syndromes = Array.from({ length: 4 }, (_, row) =>
@@ -91,8 +129,9 @@ export function decodeFrame(symbols) {
     if (!errors) continue;
     const corrected = words.slice();
     positions.forEach((position, i) => { corrected[position] = mod(corrected[position] - errors[i]); });
-    const result = unpack(corrected);
-    if (result) return { ...result, corrections: positions.length };
+    const errorBudget = Math.floor((4 - erasures.length) / 2) - (positions.length - erasures.length);
+    const result = unpack(corrected, received, errorBudget);
+    if (result) return { ...result.result, corrections: positions.length + result.extraErrors };
   }
   return null;
 }
@@ -110,30 +149,73 @@ export function classifyColor(r, g, b) {
 export class StreamDecoder {
   constructor() {
     this.samples = [];
+    this.sampleHead = 0;
+    this.starts = PERIODS_MS.map(() => ({ times: [], head: 0 }));
     this.lastTime = -Infinity;
+  }
+
+  sampleAt(target, tolerance) {
+    let low = this.sampleHead, high = this.samples.length;
+    while (low < high) {
+      const mid = (low + high) >>> 1;
+      if (this.samples[mid].time < target) low = mid + 1;
+      else high = mid;
+    }
+    let best = low < this.samples.length ? this.samples[low] : null;
+    if (low > this.sampleHead &&
+      (!best || target - this.samples[low - 1].time <= best.time - target)) best = this.samples[low - 1];
+    if (!best || Math.abs(best.time - target) > tolerance) return null;
+    if (best.color != null) return best.color;
+    let color = null;
+    for (let i = low - 1; i >= this.sampleHead && target - this.samples[i].time <= tolerance; i--) {
+      if (this.samples[i].color == null) continue;
+      if (color !== null && color !== this.samples[i].color) return null;
+      color = this.samples[i].color;
+    }
+    for (let i = low; i < this.samples.length && this.samples[i].time - target <= tolerance; i++) {
+      if (this.samples[i].color == null) continue;
+      if (color !== null && color !== this.samples[i].color) return null;
+      color = this.samples[i].color;
+    }
+    return color;
   }
 
   add(timeMs, color) {
     if (!Number.isFinite(timeMs) || timeMs <= this.lastTime) throw new Error("Video timestamps must increase");
     this.lastTime = timeMs;
     this.samples.push({ time: timeMs, color });
-    this.samples = this.samples.filter(sample => sample.time >= timeMs - 21000);
-    for (const period of PERIODS_MS) {
-      for (const start of this.samples) {
-        if (start.color !== 5 || timeMs - start.time < period * 27 || timeMs - start.time > period * 28) continue;
-        const symbols = [];
-        let cursor = 0;
-        for (let i = 0; i < FRAME_SYMBOLS; i++) {
-          const target = start.time + i * period;
-          while (cursor + 1 < this.samples.length &&
-            Math.abs(this.samples[cursor + 1].time - target) < Math.abs(this.samples[cursor].time - target)) cursor++;
-          const sample = this.samples[cursor];
-          symbols.push(Math.abs(sample.time - target) <= period * 0.3 ? sample.color : null);
+    while (this.sampleHead < this.samples.length && this.samples[this.sampleHead].time < timeMs - 21000) this.sampleHead++;
+    if (this.sampleHead > 1024) {
+      this.samples.splice(0, this.sampleHead);
+      this.sampleHead = 0;
+    }
+    if (color === 5) {
+      for (const queue of this.starts) queue.times.push(timeMs);
+    }
+    let decoded = null;
+    for (let p = 0; p < PERIODS_MS.length; p++) {
+      const period = PERIODS_MS[p], queue = this.starts[p];
+      while (queue.head < queue.times.length && timeMs >= queue.times[queue.head] + period * 27) {
+        const start = queue.times[queue.head++];
+        if (timeMs - start > period * 28) continue;
+        const tolerance = period * 0.3;
+        const symbols = [5];
+        for (let symbol = 1; symbol < 4; symbol++) symbols.push(this.sampleAt(start + symbol * period, tolerance));
+        if (symbols[1] !== 5 || symbols[2] !== 5 || symbols[3] !== 4) continue;
+        for (let symbol = 4; symbol < FRAME_SYMBOLS; symbol++) {
+          symbols.push(this.sampleAt(start + symbol * period, tolerance));
         }
         const result = decodeFrame(symbols);
-        if (result && (result.count <= 2000 ? 120 : 360) === period) return result;
+        if (result && (result.count <= 2000 ? 120 : 360) === period) {
+          decoded ??= result;
+          break;
+        }
+      }
+      if (queue.head > 1024) {
+        queue.times.splice(0, queue.head);
+        queue.head = 0;
       }
     }
-    return null;
+    return decoded;
   }
 }
