@@ -174,7 +174,7 @@ the bundle adjustment's dense system over points will need a sparse version for 
 
 `node scripts/reconstruct-video.js <video> web/model.json` scans a handheld recording, reconstructs it and writes a
 model (git-ignored). Serve `web/` (for example `python3 -m http.server --directory web`) and open
-`viewer.html`: it loads `model.json` (or `?model=<url>`, or a dropped/chosen file). The string is leveled by
+`viewer.html`: it starts empty and shows a model after a scan (or `?model=<url>`, or a dropped/chosen file). The string is leveled by
 its least-spread direction; drag to rotate, shift-drag to pan, wheel to zoom, hover to identify a light, and a
 chase animation previews how an effect would look on the mapped lights.
 
@@ -186,8 +186,8 @@ half resolution, refined at full resolution; the expensive color descriptor only
 and is independent per frame, so `web/pool.js` runs it on one worker per core (`scripts/node-pool.js` for Node,
 Web Workers in the browser); the tracker (position-only, spatial grid) runs on the main thread and is
 gap-aware, because players drop frames. Measured on `protocolv2_moving.mp4` (1379 frames, 8 cores): 139 s before,
-about 25 s now. Tracklets and descriptors are cached (`<output>.cache.json` in the CLI, IndexedDB in the browser,
-keyed by file identity and `PIPELINE_VERSION`), so decoding or reconstruction can be rerun in a few seconds.
+about 25 s now. The CLI caches tracklets and descriptors in `<output>.cache.json` (keyed by file identity and `PIPELINE_VERSION`), so
+decoding or reconstruction can be rerun in a few seconds. The browser does not cache: every scan starts clean.
 Decoding grows with tracks x LED count (a few seconds for 300 tracks); the bundle adjustment will become the
 limit at hundreds of lights. Not done: WASM, WebGPU, and a cheap first-pass decoder.
 

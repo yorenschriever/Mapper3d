@@ -1,6 +1,7 @@
 import { LightDetector } from "./detect.js";
 import { colorFeatures } from "./stationary.js";
 import { decodeStationaryLights } from "./decode2.js";
+import { FRAME_SLOTS } from "./code.js";
 import { analyzeFrame } from "./analyze.js";
 import { SpotTracker } from "./track.js";
 
@@ -71,18 +72,60 @@ export async function trackFrames(frames, { analyze = analyzeFrame, concurrency 
   return tracker.result(minSamples).slice(0, maxTracks);
 }
 
-/** Decodes tracklets; all lights share one clock, so they are folded by absolute video time. */
+/**
+ * How well a tracklet's color descriptors repeat after one code frame (-1..1). Real lights repeat
+ * their pattern every frame; reflections, glints and tracks that hop between lights do not.
+ * Returns 1 when the tracklet is too short to judge (covers under 1.2 frames).
+ */
+export function repeatScore(samples, lag, step = 8) {
+  if (samples.length < 2 || samples.at(-1).time - samples[0].time < 1.2 * lag) return 1;
+  const dims = samples[0].features.length, start = samples[0].time;
+  const grid = [];
+  for (let i = 0, g = start, t = 0; g <= samples.at(-1).time; g += step) {
+    while (i < samples.length - 1 && samples[i].time < g) i++;
+    grid[t++] = samples[i].features;
+  }
+  const mean = new Array(dims).fill(0);
+  for (const f of grid) for (let q = 0; q < dims; q++) mean[q] += f[q] / grid.length;
+  const k = Math.round(lag / step);
+  let dot = 0, a = 0, b = 0;
+  for (let i = 0; i + k < grid.length; i++) {
+    for (let q = 0; q < dims; q++) {
+      const u = grid[i][q] - mean[q], v = grid[i + k][q] - mean[q];
+      dot += u * v; a += u * u; b += v * v;
+    }
+  }
+  return a && b ? dot / Math.sqrt(a * b) : -1;
+}
+
+/**
+ * Decodes tracklets; all lights share one clock, so they are folded by absolute video time.
+ * In cluttered scenes the many non-light tracklets swamp the color calibration, so when that
+ * decodes almost nothing it is repeated with only the tracklets that repeat with the code period.
+ */
 export function decodeTracks(tracks, options = {}) {
   if (!tracks.length) return { count: 0, period: 0, tracks: [] };
-  const described = tracks.map(t => t.samples.filter(s => s.features));
-  const result = decodeStationaryLights(described, options);
+  const periods = options.periods ?? [120, 360];
+  const all = tracks.map((t, k) => ({ k, samples: t.samples.filter(s => s.features) }));
+  const run = kept => {
+    const result = decodeStationaryLights(kept.map(t => t.samples), options);
+    return { result, kept, accepted: result.lights.filter(l => l.accepted).length };
+  };
+  let best = run(all);
+  if (best.accepted < 3) {
+    const repeating = all.filter(({ samples }) => Math.max(...periods.map(p => repeatScore(samples, p * FRAME_SLOTS))) >= 0.35);
+    if (repeating.length >= 3 && repeating.length < all.length) {
+      const retry = run(repeating);
+      if (retry.accepted > best.accepted) best = retry;
+    }
+  }
   return {
-    count: result.count,
-    period: result.period,
-    tracks: result.lights.flatMap((light, k) => light.accepted ? [{
+    count: best.result.count,
+    period: best.result.period,
+    tracks: best.result.lights.flatMap((light, i) => light.accepted ? [{
       index: light.index,
       margin: light.margin,
-      samples: tracks[k].samples.map(({ time, x, y }) => ({ time, x, y })),
+      samples: tracks[best.kept[i].k].samples.map(({ time, x, y }) => ({ time, x, y })),
     }] : []),
   };
 }

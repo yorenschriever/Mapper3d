@@ -149,5 +149,6 @@ addEventListener("drop", async e => {
 addEventListener("resize", resize);
 
 resize();
-const url = new URLSearchParams(location.search).get("model") ?? "model.json";
-fetch(url).then(r => r.ok ? r.text() : null).then(t => { if (t) load(t); }).catch(() => {});
+// Nothing is shown until a scan finishes, unless a model is requested explicitly (?model=model.json).
+const url = new URLSearchParams(location.search).get("model");
+if (url) fetch(url).then(r => r.ok ? r.text() : null).then(t => { if (t) load(t); }).catch(() => {});

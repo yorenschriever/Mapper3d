@@ -40,17 +40,27 @@ export function reconstruct(frames, { width, height, focal = 0.66 * width, log =
 
   // Initial pair: many shared lights, a visible disparity, and a pose that explains the points well.
   // Pure rotation and flat scenes give inconsistent poses, which the reprojection check rejects.
-  let pair = null, relative = null;
-  for (let a = 0; a < frames.length; a += 3) {
-    for (const gap of [8, 16, 30, 50, 80]) {
+  // If nothing passes the strict limits, retry with progressively looser ones.
+  const levels = [
+    { minShared: 10, minDisparity: 20, minWide: 8, maxRms: 3 },
+    { minShared: 8, minDisparity: 10, minWide: 6, maxRms: 4 },
+    { minShared: 6, minDisparity: 5, minWide: 5, maxRms: 6 },
+  ];
+  let pair = null, relative = null, mostShared = 0, mostDisparity = 0;
+  for (const level of levels) {
+    if (pair) break;
+    for (let a = 0; a < frames.length; a += 2) {
+    for (const gap of [6, 12, 24, 40, 60, 90, 130, 200]) {
       const b = a + gap;
       if (b >= frames.length) continue;
       const shared = [...chosen[a].keys()].filter(id => chosen[b].has(id));
-      if (shared.length < 10) continue;
+      mostShared = Math.max(mostShared, shared.length);
+      if (shared.length < level.minShared) continue;
       const disparity = shared.map(id => Math.hypot(chosen[a].get(id).x - chosen[b].get(id).x, chosen[a].get(id).y - chosen[b].get(id).y)).sort((x, y) => x - y)[shared.length >> 1];
-      if (disparity < 20) continue;
+      mostDisparity = Math.max(mostDisparity, disparity);
+      if (disparity < level.minDisparity) continue;
       const pose = initialPose(shared.map(id => ({ id, a: chosen[a].get(id), b: chosen[b].get(id) })), focal, cx, cy, { random, iterations: 150 });
-      if (!pose || pose.ids.length < 9) continue;
+      if (!pose || pose.ids.length < level.minWide) continue;
       const camera = { r: vecFromRot(pose.R), t: pose.t }, origin = { r: [0, 0, 0], t: [0, 0, 0] };
       const center = [-(pose.R[0] * pose.t[0] + pose.R[3] * pose.t[1] + pose.R[6] * pose.t[2]), -(pose.R[1] * pose.t[0] + pose.R[4] * pose.t[1] + pose.R[7] * pose.t[2]), -(pose.R[2] * pose.t[0] + pose.R[5] * pose.t[1] + pose.R[8] * pose.t[2])];
       let sq = 0, ok = 0, wide = 0;
@@ -66,12 +76,16 @@ export function reconstruct(frames, { width, height, focal = 0.66 * width, log =
         }
       }
       const rms = Math.sqrt(sq / Math.max(1, 2 * ok));
-      if (wide < 8 || rms > 3) continue;
+      if (wide < level.minWide || rms > level.maxRms) continue;
       const score = wide * Math.min(disparity, 150) / (1 + rms);
       if (!pair || score > pair.score) { pair = { a, b, score, shared, rms }; relative = pose; }
     }
+    }
   }
-  if (!pair) throw new Error("No pair of frames gives a consistent initial pose");
+  if (!pair) {
+    const decoded = new Set(chosen.flatMap(c => [...c.keys()])).size;
+    throw new Error(`Not enough camera movement or shared lights to start the reconstruction: ${decoded} lights decoded in ${frames.length} frames, at most ${mostShared} lights seen together in two frames, largest median shift ${mostDisparity.toFixed(0)} px. Move the camera sideways around the tree (don't just rotate) and keep many lights in view.`);
+  }
   log(`initial pair frames ${pair.a},${pair.b}: ${pair.shared.length} shared, ${relative.ids.length} inliers, rms ${pair.rms.toFixed(2)}px`);
 
   const cameras = new Map();   // frame index -> {r, t}
