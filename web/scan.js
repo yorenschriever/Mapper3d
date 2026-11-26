@@ -61,7 +61,7 @@ export async function* orderedMap(source, fn, limit) {
  * (for example a worker pool); up to `concurrency` frames are analyzed at once.
  * Returns the tracklets with the most colorful samples first.
  */
-export async function trackFrames(frames, { analyze = analyzeFrame, concurrency = 1, maxTracks = 300, minSamples = 30, onProgress } = {}) {
+export async function trackFrames(frames, { analyze = analyzeFrame, concurrency = 1, maxTracks = 600, minSamples = 30, onProgress } = {}) {
   const tracker = new SpotTracker();
   let n = 0;
   const analyzed = orderedMap(frames, async frame => [frame.time, await analyze(frame)], concurrency);
@@ -107,15 +107,18 @@ export function decodeTracks(tracks, options = {}) {
   if (!tracks.length) return { count: 0, period: 0, tracks: [] };
   const periods = options.periods ?? [120, 360];
   const all = tracks.map((t, k) => ({ k, samples: t.samples.filter(s => s.features) }));
-  const run = kept => {
-    const result = decodeStationaryLights(kept.map(t => t.samples), options);
+  // Tracklets that repeat with the code period may fill indices that no confident light has.
+  const fillFrom = all.map((t, i) => [t, i]).filter(([t]) => Math.max(...periods.map(p => repeatScore(t.samples, p * FRAME_SLOTS))) >= 0.2).map(([, i]) => i);
+  const run = (kept, calibrateOn = null) => {
+    const result = decodeStationaryLights(kept.map(t => t.samples), { ...options, calibrateOn, fillFrom });
     return { result, kept, accepted: result.lights.filter(l => l.accepted).length };
   };
   let best = run(all);
   if (best.accepted < 3) {
     const repeating = all.filter(({ samples }) => Math.max(...periods.map(p => repeatScore(samples, p * FRAME_SLOTS))) >= 0.35);
     if (repeating.length >= 3 && repeating.length < all.length) {
-      const retry = run(repeating);
+      // Calibrate the colors on the tracklets that repeat, but still decode all of them.
+      const retry = run(all, repeating.map(t => all.indexOf(t)));
       if (retry.accepted > best.accepted) best = retry;
     }
   }
@@ -139,7 +142,7 @@ export function decodeTracks(tracks, options = {}) {
  * decoded tracklet (an index usually has several, and reflections may add more).
  */
 export async function scanMoving(frames, { cache, cacheKey, analyze, concurrency, maxTracks, minSamples, onProgress, ...options } = {}) {
-  const key = cacheKey && `${cacheKey}:v${PIPELINE_VERSION}:${maxTracks ?? 300}:${minSamples ?? 30}`;
+  const key = cacheKey && `${cacheKey}:v${PIPELINE_VERSION}:${maxTracks ?? 600}:${minSamples ?? 30}`;
   let tracks = key && cache ? await cache.get(key) : null;
   if (!tracks) {
     tracks = await trackFrames(typeof frames === "function" ? frames() : frames, { analyze, concurrency, maxTracks, minSamples, onProgress });

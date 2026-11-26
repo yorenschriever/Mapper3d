@@ -38,8 +38,8 @@ export function foldSamples(samples, period) {
   return sums.map((sum, bin) => counts[bin] ? Array.from(sum, v => v / counts[bin]) : null);
 }
 
-export function kmeans(points, k, random, iterations = 30) {
-  const centers = [points[Math.floor(random() * points.length)]];
+export function kmeans(points, k, random, iterations = 30, init = null) {
+  const centers = init ? init.map(c => [...c]) : [points[Math.floor(random() * points.length)]];
   while (centers.length < k) {
     const d = points.map(p => Math.min(...centers.map(c => distance2(p, c))));
     let r = random() * d.reduce((a, b) => a + b, 0), i = 0;
@@ -95,6 +95,47 @@ export function hardAgreement(colors) {
   return best;
 }
 
+// Hue (degrees) of the five colors in the order of COLOR_COUNT's indices: red, green, blue, yellow, magenta.
+const COLOR_HUES = [0, 120, 240, 60, 300];
+const hueDistance = (a, b) => { const d = Math.abs(a - b) % 360; return Math.min(d, 360 - d); };
+
+/** Hue (degrees) and chroma of a descriptor, from the glow rings (descriptor values 4..9). */
+function descriptorHue(f) {
+  const r = f[4] + f[7], g = f[5] + f[8], b = f[6] + f[9];
+  const mean = (r + g + b) / 3;
+  const chroma = Math.hypot(r - mean, g - mean, b - mean), size = Math.hypot(r, g, b) || 1;
+  return { hue: (Math.atan2(Math.sqrt(3) * (g - b), 2 * r - g - b) * 180 / Math.PI + 360) % 360, chroma, share: chroma / size };
+}
+
+/**
+ * Initial color clusters from hue order. Red, yellow, green, blue and magenta always follow each
+ * other around the hue circle, whatever the lighting or white balance, so the five hues are
+ * clustered on the circle starting from their nominal angles; this is robust against grey clutter
+ * and does not depend on a lucky random start. Returns a k-means result whose clusters are in
+ * COLOR_HUES order (cluster j is color j), or null when there are too few colorful points.
+ */
+export function hueModel(points, random) {
+  const colorful = points.filter(p => descriptorHue(p).share > 0.3);
+  if (colorful.length < 3 * COLOR_COUNT) return null;
+  const hues = colorful.map(p => descriptorHue(p).hue);
+  let centers = [...COLOR_HUES];
+  for (let it = 0; it < 15; it++) {
+    const sums = centers.map(() => [0, 0, 0]);
+    hues.forEach(h => {
+      let best = 0;
+      centers.forEach((c, j) => { if (hueDistance(h, c) < hueDistance(h, centers[best])) best = j; });
+      sums[best][0] += Math.cos(h * Math.PI / 180); sums[best][1] += Math.sin(h * Math.PI / 180); sums[best][2]++;
+    });
+    centers = centers.map((c, j) => sums[j][2] ? (Math.atan2(sums[j][1], sums[j][0]) * 180 / Math.PI + 360) % 360 : c);
+  }
+  const init = centers.map(c => {
+    const members = colorful.filter((_, i) => hueDistance(hues[i], c) < 20);
+    const pool = members.length ? members : colorful;
+    return pool[0].map((_, d) => pool.reduce((sum, m) => sum + m[d], 0) / pool.length);
+  });
+  return kmeans(points, COLOR_COUNT, random, 30, init);
+}
+
 const PERMUTATIONS = (function permute(items) {
   if (items.length <= 1) return [items];
   return items.flatMap((x, i) => permute([...items.slice(0, i), ...items.slice(i + 1)]).map(rest => [x, ...rest]));
@@ -130,20 +171,24 @@ export function findCalibration(folds, { restarts = 6, searchLights = 12, seed =
     const result = kmeans(points, COLOR_COUNT, random);
     if (!model || result.inertia < model.inertia) model = result;
   }
+  // Candidate cluster sets: the best random k-means and the hue-ordered one; the code decides.
+  const models = [model, hueModel(points, random)].filter(Boolean);
   const subset = folds.slice(0, searchLights);
   let best = { score: -1 };
-  for (let rotation = 0; rotation < BINS; rotation++) {
-    const clusters = subset.map(folded => Array.from({ length: INDEX_SYMBOLS * 2 }, (_, s) => {
-      const d = slotDescriptor(folded, rotation, s);
-      return d ? nearest(d, model.centers) : 0;
-    }));
-    for (const permutation of PERMUTATIONS) {
-      let score = 0;
-      for (const labels of clusters) score += hardAgreement(labels.map(c => permutation[c]));
-      if (score > best.score) best = { score, rotation, assignment: permutation };
+  for (const candidate of models) {
+    for (let rotation = 0; rotation < BINS; rotation++) {
+      const clusters = subset.map(folded => Array.from({ length: INDEX_SYMBOLS * 2 }, (_, s) => {
+        const d = slotDescriptor(folded, rotation, s);
+        return d ? nearest(d, candidate.centers) : 0;
+      }));
+      for (const permutation of PERMUTATIONS) {
+        let score = 0;
+        for (const labels of clusters) score += hardAgreement(labels.map(c => permutation[c]));
+        if (score > best.score) best = { score, rotation, assignment: permutation, centers: candidate.centers };
+      }
     }
   }
-  return { ...best, centers: model.centers };
+  return best;
 }
 
 /** Color classifier: one Gaussian per color with a shared diagonal variance, on descriptors. */
@@ -228,7 +273,17 @@ function bestWords(scores, table, symbols, limit) {
 }
 
 /** Maximum-likelihood index for one light and the margin to the runner-up. */
-export const decodeIndex = likelihoods => bestWords(symbolScores(likelihoods, 0, INDEX_SYMBOLS), INDEX_TABLE, INDEX_SYMBOLS, 10000);
+export const decodeIndex = (likelihoods, limit = 10000) => bestWords(symbolScores(likelihoods, 0, INDEX_SYMBOLS), INDEX_TABLE, INDEX_SYMBOLS, limit);
+
+/** Log-likelihood of every index below `limit` for one light. */
+export function indexScores(likelihoods, limit) {
+  const scores = symbolScores(likelihoods, 0, INDEX_SYMBOLS);
+  return Array.from({ length: limit }, (_, value) => {
+    let s = 0;
+    for (let j = 0; j < INDEX_SYMBOLS; j++) s += scores[j][INDEX_TABLE[value * INDEX_SYMBOLS + j]];
+    return s;
+  });
+}
 
 /** Count decoded from the count slots summed over many lights. */
 export function decodeCount(allLikelihoods) {
@@ -246,13 +301,13 @@ export function decodeCount(allLikelihoods) {
 }
 
 /** Margin threshold above which a decode is trusted: a high quantile of margins on shuffled slots. */
-export function nullThreshold(allLikelihoods, { shuffles = 4, quantile = 0.999, seed = 7 } = {}) {
+export function nullThreshold(allLikelihoods, { shuffles = 4, quantile = 0.999, seed = 7, limit = 10000 } = {}) {
   const random = mulberry(seed), margins = [];
   for (const l of allLikelihoods) {
     for (let r = 0; r < shuffles; r++) {
       const order = [...l.slice(0, 20)];
       for (let i = order.length - 1; i > 0; i--) { const j = Math.floor(random() * (i + 1)); [order[i], order[j]] = [order[j], order[i]]; }
-      margins.push(decodeIndex([...order, ...l.slice(20)]).margin);
+      margins.push(decodeIndex([...order, ...l.slice(20)], limit).margin);
     }
   }
   margins.sort((a, b) => a - b);
@@ -264,16 +319,19 @@ export function nullThreshold(allLikelihoods, { shuffles = 4, quantile = 0.999, 
  * lights: array of sample lists [{time, features}] (time in ms).
  * Returns { period, count, lights: [{ index, margin, accepted }] }.
  */
-export function decodeStationaryLights(lights, { periods = [120, 360], temperature = 3, rounds = 2 } = {}) {
+export function decodeStationaryLights(lights, { periods = [120, 360], temperature = 3, rounds = 5, calibrateOn = null, fillFrom = null, maxFill = 2 } = {}) {
   let best = null;
   for (const period of periods) {
     const folds = lights.map(samples => foldSamples(samples, period));
-    const calibration = findCalibration(folds);
-    if (!best || calibration.score > best.calibration.score) best = { period, folds, calibration };
+    // The color calibration may rely on a trusted subset (e.g. tracklets that repeat with the code
+    // period) while every light is still decoded with the result.
+    const trusted = calibrateOn ? calibrateOn.map(i => folds[i]) : folds;
+    const calibration = findCalibration(trusted);
+    if (!best || calibration.score > best.calibration.score) best = { period, folds, trusted, calibration };
   }
-  const { period, folds, calibration } = best;
-  let classifier = ColorClassifier.fromCenters(calibration.centers, calibration.assignment, folds);
-  let results = [], count = 0;
+  const { period, folds, trusted, calibration } = best;
+  let classifier = ColorClassifier.fromCenters(calibration.centers, calibration.assignment, trusted);
+  let results = [], count = 0, previous = null;
   for (let round = 0; round <= rounds; round++) {
     const likelihoods = folds.map(f => slotLikelihoods(f, calibration.rotation, classifier, temperature));
     const threshold = nullThreshold(likelihoods);
@@ -283,7 +341,10 @@ export function decodeStationaryLights(lights, { periods = [120, 360], temperatu
     });
     count = decodeCount(likelihoods.filter((_, i) => results[i].accepted)).count;
     results.forEach(r => { r.accepted = r.accepted && r.index < count; });
-    if (round === rounds) break;
+    // Stop once refitting no longer changes which lights decode to what.
+    const signature = results.map(r => (r.accepted ? r.index : -1)).join(",");
+    if (round === rounds || signature === previous) break;
+    previous = signature;
     const training = [];
     folds.forEach((folded, i) => {
       if (!results[i].accepted) return;
@@ -293,8 +354,43 @@ export function decodeStationaryLights(lights, { periods = [120, 360], temperatu
         if (d) training.push({ color: expected[s], features: d });
       }
     });
-    if (training.length < 50) break;
+    if (training.length < 20) break;
     classifier = ColorClassifier.fit(training, classifier);
   }
-  return { period, rotation: calibration.rotation, count, calibrationScore: calibration.score, lights: results };
+  if (count >= 2 && count <= 2000) {
+    const likelihoods = folds.map(f => slotLikelihoods(f, calibration.rotation, classifier, temperature));
+    restrictToCount(results, likelihoods, count, fillFrom, maxFill);
+  }
+  return { period, rotation: calibration.rotation, count, calibrationScore: calibration.score, classifier, lights: results };
+}
+
+/**
+ * Second pass once the count is known: only indices below it exist, so the weak lights are
+ * decoded against that small set, which lowers the margin needed to trust a decode. Indices that
+ * still have no light are then filled from the best remaining candidates (`fillFrom`: positions of
+ * lights that may be used, default all), at most `maxFill` per index, and only when the missing
+ * index is the light's top choice with a margin above a looser threshold. Edits `results` in place.
+ */
+function restrictToCount(results, likelihoods, count, fillFrom, maxFill) {
+  const strict = nullThreshold(likelihoods, { limit: count });
+  const loose = nullThreshold(likelihoods, { limit: count, quantile: 0.95 });
+  const ranked = likelihoods.map(l => {
+    const scores = indexScores(l, count);
+    const order = scores.map((v, i) => [v, i]).sort((a, b) => b[0] - a[0]);
+    return { scores, best: order[0][1], margin: order[0][0] - order[1][0] };
+  });
+  ranked.forEach((r, i) => {
+    if (!results[i].accepted && r.margin > strict) Object.assign(results[i], { index: r.best, margin: r.margin, accepted: true, restricted: true });
+  });
+  const found = new Set(results.filter(r => r.accepted).map(r => r.index));
+  const eligible = new Set(fillFrom ?? results.map((_, i) => i));
+  for (let missing = 0; missing < count; missing++) {
+    if (found.has(missing)) continue;
+    const candidates = ranked
+      .map((r, i) => ({ i, r }))
+      .filter(({ i, r }) => !results[i].accepted && eligible.has(i) && r.best === missing && r.margin > loose)
+      .sort((a, b) => b.r.margin - a.r.margin)
+      .slice(0, maxFill);
+    for (const { i, r } of candidates) Object.assign(results[i], { index: missing, margin: r.margin, accepted: true, restricted: true, filled: true });
+  }
 }
