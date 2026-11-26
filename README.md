@@ -173,10 +173,19 @@ the bundle adjustment's dense system over points will need a sparse version for 
 ### Viewer
 
 `node scripts/reconstruct-video.js <video> web/model.json` scans a handheld recording, reconstructs it and writes a
-model (git-ignored). Serve `web/` (for example `python3 -m http.server --directory web`) and open
-`viewer.html`: it starts empty and shows a model after a scan (or `?model=<url>`, or a dropped/chosen file). The string is leveled by
-its least-spread direction; drag to rotate, shift-drag to pan, wheel to zoom, hover to identify a light, and a
-chase animation previews how an effect would look on the mapped lights.
+model (git-ignored). Serve `web/` (`npm run serve` for https on the LAN, `--http` for plain http) and open
+`viewer.html`, a three-screen app (Preact + htm, vendored in `web/vendor/preact.js`, so there is no build step; the
+screens are in `web/ui/`):
+
+1. **Camera**: a fullscreen preview with a record button. Tap it to start scanning and again to stop. The top-right
+   menu has "Upload video…": the video then replays while its frames are analyzed.
+2. **Processing**: a circular progress ring while the lights are decoded and reconstructed.
+3. **Model**: drag to rotate, pinch or wheel to zoom, shift-drag or two fingers to pan, tap a light to identify it.
+   The menu toggles the string, the indices and the camera path, and exports the model as JSON or as a C++ header
+   (`LED_POSITIONS[LED_COUNT]` of `{x, y, z}` floats by LED index, centered, z up and scaled to the farthest light
+   at distance 1; lights that were not found are `NAN`). The string is leveled by its least-spread direction.
+
+`viewer.html?model=<url>` opens a finished model directly.
 
 ### Speed and scaling
 
@@ -193,12 +202,13 @@ limit at hundreds of lights. Not done: WASM, WebGPU, and a cheap first-pass deco
 
 ### Scanning in the browser
 
-`viewer.html` can scan a video file (the "Scan video" input, or drop a video) or the camera ("Scan with
-camera", then "Stop and reconstruct"), with the same pipeline (`web/scan-app.js`, `web/capture.js`): frames
-go to a worker pool, then `web/solve-worker.js` decodes and reconstructs off the UI thread and the viewer shows the
-result. A file is played through a `<video>` element and paused whenever the analysis falls behind, so no frames are
-skipped by the pipeline. On `protocolv2_moving.mp4` this finds 20 of 20 lights (median reprojection 1.2 px) in
-about 40 s. The camera path has not been tried on a real device.
+`viewer.html` scans the camera or an uploaded video file with the same pipeline (`web/scan-app.js`,
+`web/capture.js`): frames go to a worker pool, then `web/solve-worker.js` decodes and reconstructs off the UI thread.
+A file is read by seeking frame by frame rather than by playing it, so every frame arrives at the file's own frame rate even
+when the tab is in the background (realtime playback is throttled there and drops frames). The live camera is analyzed at 30 fps
+while its preview stays at the camera's rate, and exposure compensation is offered where the browser supports it
+(Chrome on Android). On `protocolv2_moving2.mp4` this finds 20 of 20 lights (median reprojection 1.0 px). The camera path
+has not been tried on a real device.
 
 ## Optical protocol v1
 

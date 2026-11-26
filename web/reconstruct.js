@@ -34,7 +34,7 @@ export function framesFromTracks(tracks, step = 4) {
  * Returns { points: Map(index -> [x, y, z]), cameras: [{frame, time, r, t}], focal, rms, observations }.
  * The scale is arbitrary and the focal length (pixels) is estimated; `focal` is only the starting guess.
  */
-export function reconstruct(frames, { width, height, focal = 0.66 * width, log = () => {}, random = seededRandom(1) } = {}) {
+export function reconstruct(frames, { width, height, focal = 0.66 * width, log = () => {}, onProgress = () => {}, random = seededRandom(1) } = {}) {
   const cx = width / 2, cy = height / 2;
   const chosen = frames.map(f => new Map([...f.observations].map(([id, list]) => [id, list.reduce((a, b) => (b.margin > a.margin ? b : a))])));
 
@@ -88,6 +88,7 @@ export function reconstruct(frames, { width, height, focal = 0.66 * width, log =
   }
   log(`initial pair frames ${pair.a},${pair.b}: ${pair.shared.length} shared, ${relative.ids.length} inliers, rms ${pair.rms.toFixed(2)}px`);
 
+  onProgress(0.1);
   const cameras = new Map();   // frame index -> {r, t}
   const points = new Map();    // light index -> [x, y, z]
   cameras.set(pair.a, { r: [0, 0, 0], t: [0, 0, 0] });
@@ -184,6 +185,7 @@ export function reconstruct(frames, { width, height, focal = 0.66 * width, log =
   triangulateNew();
   log(`initial points: ${points.size}`);
   adjust(15);
+  onProgress(0.2);
 
   const register = k => {
     const known = [...chosen[k]].filter(([id]) => points.has(id));
@@ -226,6 +228,7 @@ export function reconstruct(frames, { width, height, focal = 0.66 * width, log =
     // Frames next to registered ones are tried first, and each success makes the next one easier.
     const added = sweep(pending);
     log(`round ${round}: +${added} cameras, ${cameras.size}/${frames.length}, ${points.size} points`);
+    onProgress(0.2 + 0.6 * cameras.size / frames.length);
     if (cameras.size === before) break;
     adjust(8);
   }
@@ -234,6 +237,7 @@ export function reconstruct(frames, { width, height, focal = 0.66 * width, log =
     const changed = reselect();
     rms = adjust(15, true);
     log(`reselect ${changed}, rms ${rms.toFixed(2)}px, focal ${f.toFixed(0)}`);
+    onProgress(0.9 + 0.05 * (i + 1));
   }
   return {
     points,

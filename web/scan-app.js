@@ -16,11 +16,13 @@ function spawnAnalyzer() {
   };
 }
 
-function solve(tracks, { width, height }, log) {
+function solve(tracks, { width, height }, onProgress, cancel) {
   return new Promise((resolve, reject) => {
     const worker = new Worker(new URL("./solve-worker.js", import.meta.url), { type: "module" });
+    cancel?.addEventListener("abort", () => { worker.terminate(); reject(new Error("Cancelled")); });
     worker.onmessage = ({ data }) => {
-      if (data.log) return log(data.log);
+      if (data.progress !== undefined) return onProgress(data.progress);
+      if (data.log) return;
       worker.terminate();
       if (data.error) reject(new Error(data.error)); else resolve(data.model);
     };
@@ -33,25 +35,27 @@ function solve(tracks, { width, height }, log) {
  * Scans a recording (a File) or a live webcam stream: finds and tracks the lights on all cores,
  * then decodes and reconstructs them. Resolves with the model object the viewer reads.
  * `source` is {file} or {stream}; for a stream, abort `signal` to stop filming and start solving.
+ * Aborting `cancel` abandons the scan; the promise then rejects.
+ * `onProgress` gets {phase: "analyze", frames, tracks, fraction} (fraction is only known for a file)
+ * and {phase: "solve", fraction}. For a file, the replaying <video> is put in the `preview` element.
  */
-export async function scan({ file, stream }, { signal, onStatus = () => {}, preview } = {}) {
+export async function scan({ file, stream }, { signal, cancel, onProgress = () => {}, preview } = {}) {
   // Older versions cached tracklets in IndexedDB; every scan starts clean and removes those leftovers.
   indexedDB.deleteDatabase("mapper3d");
   let tracks;
   const video = document.createElement("video");
   video.muted = true; video.playsInline = true;
   if (file) video.src = URL.createObjectURL(file); else video.srcObject = stream;
-  preview?.replaceChildren(video);
+  if (file) preview?.replaceChildren(video);
   await new Promise((resolve, reject) => { video.onloadedmetadata = resolve; video.onerror = () => reject(new Error("Cannot read this video")); });
   const width = video.videoWidth, height = video.videoHeight;
   const pool = new AnalysisPool(spawnAnalyzer, workerCount);
-  const started = performance.now();
   try {
     tracks = await trackFrames(videoFrames(video, { signal, live: !file, fps: file ? 0 : LIVE_FPS }), {
       analyze: frame => pool.analyze(frame),
       concurrency: 2 * workerCount,
       onProgress: ({ frames, tracks: n }) => {
-        if (frames % 10 === 0) onStatus(`Analyzing: ${frames} frames, ${n} lights being tracked (${((performance.now() - started) / 1000).toFixed(0)} s)`);
+        if (frames % 5 === 0) onProgress({ phase: "analyze", frames, tracks: n, fraction: file ? Math.min(1, video.currentTime / video.duration) : undefined });
       },
     });
   } finally {
@@ -61,6 +65,7 @@ export async function scan({ file, stream }, { signal, onStatus = () => {}, prev
   }
   tracks = tracks.map(t => ({ samples: t.samples.map(s => ({ time: s.time, x: s.x, y: s.y, features: s.features && s.features.map(v => +v.toFixed(4)) })) }));
 
-  onStatus("Decoding and reconstructing…");
-  return solve(tracks, { width, height }, message => onStatus(`Reconstructing: ${message}`));
+  if (cancel?.aborted) throw new Error("Cancelled");
+  onProgress({ phase: "solve", fraction: 0 });
+  return solve(tracks, { width, height }, fraction => onProgress({ phase: "solve", fraction }), cancel);
 }
