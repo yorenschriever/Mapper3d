@@ -4,7 +4,7 @@ import { decodeStationaryLights } from "./decode2.js";
 import { FRAME_SLOTS } from "./code.js";
 import { analyzeFrame } from "./analyze.js";
 import { SpotTracker } from "./track.js";
-import { MAX_RETAINED_TRACKS, MAX_SPOTS_PER_FRAME } from "./config.js";
+import { MAX_RETAINED_TRACKS, MAX_SPOTS_PER_FRAME, SPOT_SEPARATION } from "./config.js";
 
 /**
  * Finds and decodes all lights in a stationary recording.
@@ -123,20 +123,34 @@ export function decodeTracks(tracks, options = {}) {
   if (!tracks.length) return { count: 0, period: 0, tracks: [] };
   const periods = options.periods ?? [120, 360];
   const all = tracks.map((t, k) => ({ k, samples: t.samples.filter(s => s.features) }));
+  const scores = all.map(({ samples }) => periods.map(p => repeatScore(samples, p * FRAME_SLOTS)));
   // Tracklets that repeat with the code period may fill indices that no confident light has.
-  const fillFrom = all.map((t, i) => [t, i]).filter(([t]) => Math.max(...periods.map(p => repeatScore(t.samples, p * FRAME_SLOTS))) >= 0.2).map(([, i]) => i);
-  const run = (kept, calibrateOn = null) => {
-    const result = decodeStationaryLights(kept.map(t => t.samples), { ...options, calibrateOn, fillFrom });
+  const fillFrom = all.map((_, i) => i).filter(i => Math.max(...scores[i]) >= 0.2);
+  const run = (kept, calibrateOn = null, period = null) => {
+    const result = decodeStationaryLights(kept.map(t => t.samples), {
+      ...options, ...(period === null ? {} : { periods: [period] }), calibrateOn, fillFrom,
+    });
     return { result, kept, accepted: result.lights.filter(l => l.accepted).length };
   };
   let best = run(all);
-  if (best.accepted < 3) {
-    const repeating = all.filter(({ samples }) => Math.max(...periods.map(p => repeatScore(samples, p * FRAME_SLOTS))) >= 0.35);
-    if (repeating.length >= 3 && repeating.length < all.length) {
-      // Calibrate the colors on the tracklets that repeat, but still decode all of them.
-      const retry = run(all, repeating.map(t => all.indexOf(t)));
-      if (retry.accepted > best.accepted) best = retry;
+  const retryWith = (indices, period = null) => {
+    if (indices.length < 3 || indices.length === all.length) return;
+    const retry = run(all, indices, period);
+    if ((retry.result.count !== null && best.result.count === null) ||
+        ((retry.result.count === null) === (best.result.count === null) && retry.accepted > best.accepted)) best = retry;
+  };
+  if (best.result.count === null) {
+    // Short tracks cannot establish a repeat: repeatScore deliberately gives them a neutral score of 1.
+    for (const period of [best.result.period, ...periods.filter(p => p !== best.result.period)]) {
+      const j = periods.indexOf(period);
+      const reliable = all.map((_, i) => i).filter(i =>
+        all[i].samples.at(-1).time - all[i].samples[0].time >= 1.2 * period * FRAME_SLOTS && scores[i][j] >= 0.35);
+      retryWith(reliable, period);
+      if (best.result.count !== null) break;
     }
+  }
+  if (best.accepted < 3) {
+    retryWith(all.map((_, i) => i).filter(i => Math.max(...scores[i]) >= 0.35));
   }
   if (best.result.count === null && best.accepted) {
     throw new Error("Cannot reliably determine the LED count. Film more lights for longer with their colors clearly visible.");
@@ -161,7 +175,7 @@ export function decodeTracks(tracks, options = {}) {
  * decoded tracklet (an index usually has several, and reflections may add more).
  */
 export async function scanMoving(frames, { cache, cacheKey, analyze, concurrency, maxTracks, minSamples, onProgress, ...options } = {}) {
-  const key = cacheKey && `${cacheKey}:v${PIPELINE_VERSION}:${maxTracks ?? MAX_RETAINED_TRACKS}:${minSamples ?? 30}:${MAX_SPOTS_PER_FRAME}`;
+  const key = cacheKey && `${cacheKey}:v${PIPELINE_VERSION}:${maxTracks ?? MAX_RETAINED_TRACKS}:${minSamples ?? 30}:${MAX_SPOTS_PER_FRAME}:${SPOT_SEPARATION}`;
   let tracks = key && cache ? await cache.get(key) : null;
   if (!tracks) {
     tracks = await trackFrames(typeof frames === "function" ? frames() : frames, { analyze, concurrency, maxTracks, minSamples, periods: options.periods, onProgress });

@@ -45,6 +45,7 @@ button { font: inherit; color: inherit; }
 /* Camera screen */
 .camera video, .camera .replay, .camera .replay canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; background: #000; }
 .camera-message { position: absolute; left: 24px; right: 24px; top: 50%; transform: translateY(-50%); text-align: center; color: var(--muted); }
+.camera-warning { max-width: min(360px, 100%); padding: 8px 12px; border-radius: 12px; background: var(--glass); color: #ffde83; text-align: center; font-size: 13px; }
 .timer { display: flex; align-items: center; gap: 8px; padding: 6px 14px; border-radius: 999px; background: var(--accent); font-weight: 600;
          font-variant-numeric: tabular-nums; opacity: 0; transition: opacity 0.2s; position: absolute; left: 50%; transform: translateX(-50%); }
 .timer.visible { opacity: 1; }
@@ -59,9 +60,18 @@ button { font: inherit; color: inherit; }
 .record:disabled { opacity: 0.35; cursor: default; }
 .hint { min-height: 20px; color: rgba(255, 255, 255, 0.8); font-size: 13px; text-shadow: 0 1px 6px rgba(0, 0, 0, 0.6); }
 
-.exposure { display: flex; align-items: center; gap: 10px; padding: 8px 14px; border-radius: 999px; background: var(--glass);
+.exposure { display: flex; flex-direction: column; align-items: center; gap: 8px; max-width: 100%; padding: 8px 14px; border-radius: 20px; background: var(--glass);
             backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); font-variant-numeric: tabular-nums; font-size: 13px; }
-.exposure input { width: 160px; accent-color: #ffd60a; }
+.exposure-row { display: flex; align-items: center; gap: 8px; max-width: 100%; }
+.exposure-toggle, .camera-select { flex: 0 0 40px; width: 40px; height: 40px; display: grid; place-items: center; border: 0; border-radius: 50%; background: rgba(255, 255, 255, 0.15); color: var(--text); cursor: pointer; }
+.exposure-toggle span { font-size: 14px; font-weight: 700; }
+.exposure-toggle:disabled { opacity: 0.5; cursor: default; }
+.camera-select { position: relative; }
+.camera-select:focus-within { outline: 2px solid #fff; outline-offset: 2px; }
+.camera-select select { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+.exposure-slider { display: flex; align-items: center; gap: 8px; min-width: 0; white-space: nowrap; }
+.exposure-warning { max-width: 260px; text-align: center; color: #ffde83; }
+.exposure input { width: 150px; min-width: 0; accent-color: #ffd60a; }
 
 .analysis { width: min(360px, 100%); display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 16px 18px 8px; border-radius: 20px;
             background: var(--glass); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); }

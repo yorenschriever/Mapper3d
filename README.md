@@ -157,7 +157,9 @@ high-contrast bright spots in every frame (the lights are always lit, whatever t
 them from frame to frame, predicting with the median motion of all tracks. Tracks break on fast motion or
 occlusion, so each track is a tracklet. All LEDs share one clock, so every tracklet is folded by absolute
 video time and decoded with the same decoder as the stationary case; tracklets that don't decode are
-dropped. On `protocolv2_moving.mp4` (23 s, 20 lights) all 20 indices are decoded from tracklets of 2-15 s, with no
+dropped. If the count is uncertain, color calibration is retried using tracklets that are long enough to
+demonstrate a repeating code, while still decoding the shorter tracklets. On `protocolv2_moving.mp4`
+(23 s, 20 lights) all 20 indices are decoded from tracklets of 2-15 s, with no
 index outside the count. An index typically gets several tracklets (different time ranges, plus some
 overlapping ones from reflections).
 
@@ -214,9 +216,12 @@ limit at hundreds of lights. Not done: WASM, WebGPU, and a cheap first-pass deco
 
 `viewer.html` scans the camera or an uploaded video file with the same pipeline (`web/scan-app.js`):
 full-resolution frames go to a worker pool, then `web/solve-worker.js` decodes and reconstructs off the UI thread.
-Edit `web/config.js` to configure the maximum spots per frame (default 500) and retained tracklets
-(default 1000) for browser and command-line scans. Higher limits can increase processing time, memory use
-and false candidates. The tracklet limit is applied after tracking and repeat filtering, not while recording.
+Edit `web/config.js` to configure the maximum spots per frame (default 500), retained tracklets
+(default 500), and spot separation (default 7) for browser and command-line scans. Spot separation is a
+positive integer measured on the half-resolution detection image: candidates closer than that in both
+axes are suppressed. Lower values can find closer lights but may add duplicate or false candidates.
+Higher limits can increase processing time, memory use and false candidates. The tracklet limit is applied
+after tracking and repeat filtering, not while recording.
 The color sampler estimates each spot's bright-core size and scales its glow and background sampling
 areas accordingly, within bounded limits. Closely spaced or heavily overlapping lights can still
 contaminate each other's color samples, and the fixed-size colorfulness prefilter can miss large lights.
@@ -225,8 +230,20 @@ or relying on realtime playback. File scanning requires WebCodecs and a supporte
 MP4; unsupported browsers, formats and codecs report an error. The MP4 metadata may be read from the end of
 the file before its media data is streamed. MP4Box.js is vendored in `web/vendor/` with its license, so
 the app still runs without a build step. The live camera is analyzed at 30 fps
-while its preview stays at the camera's rate, and exposure compensation is offered where the browser supports it
-(Chrome on Android). While recording, white balance and exposure are frozen at the values the camera had
+while its preview stays at the camera's rate. Use the camera selector to choose a lens; the choice is
+saved in local storage and reused on subsequent visits. If it is unavailable, the browser's default
+rear-facing camera is used and a warning is shown. Resolution and frame-rate preferences are applied
+after selecting the camera.
+Exposure compensation and manual exposure time are offered
+where the browser and camera support them. Exposure starts in auto at minimum compensation. The A/M
+toggle switches between automatic exposure compensation and manual exposure time. Manual exposure
+starts at the camera's minimum and is capped at
+1/60 second (or the camera's maximum, if shorter); it is unavailable if the camera's minimum exceeds 1/60 second.
+If the camera cannot apply manual exposure, the control returns to auto where available and shows a warning.
+Some Chromium Android cameras report mode `none` after disabling automatic exposure; when the reported
+exposure time matches, the control allows manual adjustment but asks you to verify it in the preview.
+If Chromium reports a zero minimum, the first positive supported step is used instead.
+While recording, white balance and exposure are frozen at the values the camera had
 at the start, where the browser allows manual modes (otherwise they stay automatic). The camera path
 has not been tried on a real device.
 

@@ -3,6 +3,238 @@ import assert from "node:assert/strict";
 import { errorSummary } from "../web/ui/error-notice.js";
 import { ProcessingScreen } from "../web/ui/processing-screen.js";
 import { createModelView, prepareModel } from "../web/ui/model-view.js";
+import { createExposureControls, ExposureControl, openRearCamera } from "../web/ui/camera-screen.js";
+
+test("the browser selects the rear camera before resolution and frame-rate preferences are applied", async () => {
+  const calls = [];
+  const track = { async applyConstraints(constraints) { calls.push(["track", constraints]); } };
+  const stream = { getVideoTracks: () => [track] };
+  const mediaDevices = { async getUserMedia(constraints) { calls.push(["camera", constraints]); return stream; } };
+  assert.equal(await openRearCamera(mediaDevices), stream);
+  assert.deepEqual(calls, [
+    ["camera", { video: { facingMode: "environment" }, audio: false }],
+    ["track", { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 60 } }],
+  ]);
+});
+
+test("a chosen camera is requested by its exact device ID", async () => {
+  let constraints;
+  const stream = { getVideoTracks: () => [{ applyConstraints: async () => {} }] };
+  await openRearCamera({ getUserMedia: async value => { constraints = value; return stream; } }, "camera-2");
+  assert.deepEqual(constraints, { video: { deviceId: { exact: "camera-2" } }, audio: false });
+});
+
+test("the selected camera stays usable when optional capture preferences fail", async t => {
+  const warn = t.mock.method(console, "warn", () => {});
+  const stream = { getVideoTracks: () => [{ async applyConstraints() { throw new Error("unsupported"); } }] };
+  assert.equal(await openRearCamera({ getUserMedia: async () => stream }), stream);
+  assert.equal(warn.mock.callCount(), 1);
+});
+
+test("exposure starts in auto at minimum compensation and preserves manual settings", async () => {
+  const calls = [], changes = [], errors = [];
+  const settings = { exposureMode: "continuous", exposureTime: 50, iso: 100, colorTemperature: 4000 };
+  const track = {
+    getCapabilities: () => ({
+      exposureMode: ["continuous", "manual"], exposureCompensation: { min: -5, max: 2, step: 0.1 },
+      exposureTime: { min: 5, max: 500, step: 5 }, whiteBalanceMode: ["continuous", "manual"],
+    }),
+    getSettings: () => ({ ...settings }),
+    async applyConstraints({ advanced: [value] }) { calls.push(value); Object.assign(settings, value); },
+  };
+  const controls = createExposureControls(track, state => changes.push(state), error => errors.push(error));
+  await controls.setMode("manual");
+  assert.deepEqual(calls.slice(0, 3), [
+    { exposureMode: "continuous", exposureCompensation: -5 },
+    { exposureMode: "manual" },
+    { exposureMode: "manual", exposureTime: 5 },
+  ]);
+  assert.equal(settings.exposureTime, 5);
+  assert.equal(changes[0].mode, "auto");
+  assert.equal(changes[0].value, -5);
+  assert.equal(changes.at(-1).timeRange.max, 165);
+  await controls.setTime(30);
+  await controls.unlock();
+  assert.deepEqual(calls.at(-1), { exposureMode: "manual", exposureTime: 30 });
+  await controls.setMode("auto");
+  await controls.set(-1);
+  assert.equal(changes.at(-1).mode, "auto");
+  await controls.setMode("manual");
+  assert.equal(settings.exposureTime, 30);
+  await controls.setMode("auto");
+  await controls.lock();
+  await controls.unlock();
+  assert.deepEqual(calls.at(-1), { exposureMode: "continuous", exposureCompensation: -1 });
+  assert.deepEqual(errors, []);
+});
+
+test("failure to apply minimum compensation is reported", async () => {
+  const errors = [];
+  const track = {
+    getCapabilities: () => ({ exposureMode: ["continuous"], exposureCompensation: { min: -4, max: 2, step: 0.1 } }),
+    getSettings: () => ({ exposureMode: "continuous", exposureCompensation: 0 }),
+    applyConstraints: async () => {},
+  };
+  const controls = createExposureControls(track, () => {}, error => errors.push(error), { wait: async () => {} });
+  await controls.set(-4);
+  assert.match(errors.at(-1).message, /exposure compensation/);
+});
+
+test("manual exposure range respects 1/60 second, camera limits and steps", async () => {
+  const states = [], errors = [];
+  const makeTrack = exposureTime => ({
+    getCapabilities: () => ({ exposureTime, exposureMode: ["manual"] }),
+    applyConstraints: async () => {},
+  });
+  let controls = createExposureControls(makeTrack({ min: 1, max: 500 }), state => states.push(state), error => errors.push(error));
+  await controls.setTime(10000 / 60);
+  assert.equal(states.at(-1).timeRange.max, 10000 / 60);
+  await controls.setTime(10000 / 60 + 1);
+  assert.match(errors.at(-1).message, /outside the supported range/);
+  controls = createExposureControls(makeTrack({ min: 1, max: 50, step: 7 }), state => states.push(state), error => errors.push(error));
+  await controls.setTime(50);
+  assert.equal(states.at(-1).timeRange.max, 50);
+  createExposureControls(makeTrack({ min: 170, max: 500, step: 10 }), state => states.push(state), error => errors.push(error));
+  assert.equal(states.at(-1).timeRange, null);
+});
+
+test("exposure control shows only the slider for the selected mode", () => {
+  const modes = [];
+  const exposure = {
+    range: { min: -3, max: 3, step: 1 }, timeRange: { min: 5, max: 165, step: 5 },
+    autoAvailable: true, mode: "manual", value: -2, time: 5,
+    set() {}, setTime() {}, setMode: mode => modes.push(mode),
+  };
+  const row = mode => ExposureControl({ exposure: { ...exposure, mode } }).props.children[0].props.children;
+  const slider = mode => row(mode)[1].props.children.find(child => child?.type === "input");
+  assert.equal(slider("manual").props["aria-label"], "Exposure time");
+  assert.equal(slider("manual").props.max, 165);
+  assert.equal(slider("auto").props["aria-label"], "Exposure compensation");
+  row("auto")[0].props.onClick();
+  row("manual")[0].props.onClick();
+  assert.deepEqual(modes, ["manual", "auto"]);
+});
+
+test("the camera picker remains available when exposure controls are unsupported", () => {
+  const control = ExposureControl({ exposure: {}, devices: [{ deviceId: "main", label: "Main" }], selectedId: "main" });
+  const picker = control.props.children[0].props.children[2];
+  assert.equal(picker.props.children[1].props["aria-label"], "Camera");
+  assert.equal(picker.props.children[1].props.value, "main");
+});
+
+test("exposure time is unavailable without manual mode, and rejected settings are reported", async () => {
+  const changes = [], errors = [];
+  const unsupported = {
+    getCapabilities: () => ({ exposureTime: { min: 1, max: 10 }, exposureMode: ["continuous"] }),
+    applyConstraints: async () => {},
+  };
+  createExposureControls(unsupported, value => changes.push(value), error => errors.push(error));
+  assert.equal(changes[0].timeRange, null);
+  const track = {
+    getCapabilities: () => ({ exposureTime: { min: 1, max: 10 }, exposureMode: ["manual"] }),
+    getSettings: () => ({ exposureMode: "continuous" }),
+    applyConstraints: async () => {},
+  };
+  const controls = createExposureControls(track, () => {}, error => errors.push(error), { wait: async () => {} });
+  await controls.setTime(2);
+  assert.match(errors.at(-1).message, /manual exposure/);
+  track.getSettings = () => ({ exposureMode: "manual", exposureTime: 9 });
+  await controls.setTime(2);
+  assert.match(errors.at(-1).message, /requested exposure time/);
+});
+
+test("manual exposure switches modes before setting the time", async () => {
+  const states = [], errors = [], calls = [];
+  const settings = { exposureMode: "continuous", exposureTime: 50 };
+  let modeEnabled = false;
+  const track = {
+    getCapabilities: () => ({ exposureMode: ["continuous", "manual"], exposureCompensation: { min: -3, max: 3 }, exposureTime: { min: 5, max: 100 } }),
+    getSettings: () => ({ ...settings }),
+    async applyConstraints({ advanced: [value] }) {
+      calls.push(value);
+      if (value.exposureMode === "manual" && value.exposureTime === undefined) modeEnabled = true;
+      if (value.exposureMode !== "manual" || modeEnabled) Object.assign(settings, value);
+    },
+  };
+  const controls = createExposureControls(track, value => states.push(value), error => errors.push(error), { wait: async () => {} });
+  await controls.setMode("manual");
+  assert.deepEqual(calls.slice(1, 3), [{ exposureMode: "manual" }, { exposureMode: "manual", exposureTime: 5 }]);
+  assert.equal(states.at(-1).mode, "manual");
+  assert.equal(settings.exposureTime, 5);
+  assert.deepEqual(errors, []);
+});
+
+test("manual exposure accepts settings that take time to settle", async () => {
+  const states = [], errors = [], calls = [];
+  let settings = { exposureMode: "continuous", exposureTime: 50 }, requested;
+  const track = {
+    getCapabilities: () => ({ exposureMode: ["manual"], exposureTime: { min: 5, max: 100 } }),
+    getSettings: () => settings,
+    async applyConstraints({ advanced: [value] }) { calls.push(value); requested = value; },
+  };
+  const controls = createExposureControls(track, value => states.push(value), error => errors.push(error), {
+    wait: async () => { settings = { ...settings, ...requested }; },
+  });
+  await controls.setTime(10);
+  assert.equal(states.at(-1).time, 10);
+  assert.equal(calls.length, 3);
+  assert.deepEqual(errors, []);
+});
+
+test("Chromium Android mode 'none' allows time control only when the time matches", async () => {
+  const states = [], errors = [];
+  const settings = { exposureMode: "continuous", exposureTime: 50 };
+  const track = {
+    getCapabilities: () => ({ exposureMode: ["continuous", "manual"], exposureCompensation: { min: -3, max: 3 }, exposureTime: { min: 5, max: 100 } }),
+    getSettings: () => ({ ...settings }),
+    async applyConstraints({ advanced: [value] }) {
+      if (value.exposureMode === "manual") settings.exposureMode = "none";
+      else if (value.exposureMode) settings.exposureMode = value.exposureMode;
+      if (value.exposureTime !== undefined) settings.exposureTime = value.exposureTime;
+    },
+  };
+  const controls = createExposureControls(track, value => states.push(value), error => errors.push(error), { wait: async () => {}, androidChromium: true });
+  await controls.setTime(30);
+  assert.equal(states.at(-1).mode, "manual");
+  assert.equal(states.at(-1).time, 30);
+  assert.match(states.at(-1).warning, /reports exposure mode 'none'/);
+  assert.deepEqual(errors, []);
+});
+
+test("Chromium Android uses the first positive step when the reported minimum is zero", async () => {
+  const states = [], errors = [], calls = [];
+  const track = {
+    getCapabilities: () => ({ exposureMode: ["manual"], exposureTime: { min: 0, max: 100, step: 0.1 } }),
+    async applyConstraints({ advanced: [value] }) { calls.push(value); },
+  };
+  const controls = createExposureControls(track, value => states.push(value), error => errors.push(error), { androidChromium: true });
+  await controls.lock();
+  assert.equal(states.at(-1).timeRange.min, 0.1);
+  assert.equal(states.at(-1).time, 0.1);
+  assert.equal(calls[1].exposureTime, 0.1);
+  assert.deepEqual(errors, []);
+});
+
+test("an ignored manual request falls back to auto with a visible warning", async () => {
+  const states = [], errors = [], calls = [];
+  const settings = { exposureMode: "continuous", exposureTime: 50 };
+  const track = {
+    getCapabilities: () => ({ exposureMode: ["continuous", "manual"], exposureCompensation: { min: -3, max: 3 }, exposureTime: { min: 5, max: 100 } }),
+    getSettings: () => ({ ...settings }),
+    async applyConstraints({ advanced: [value] }) {
+      calls.push(value);
+      if (value.exposureMode === "continuous") Object.assign(settings, value);
+    },
+  };
+  const controls = createExposureControls(track, value => states.push(value), error => errors.push(error), { wait: async () => {} });
+  await controls.setMode("manual");
+  const state = states.at(-1);
+  assert.equal(state.mode, "auto");
+  assert.match(state.warning, /Auto exposure is active/);
+  assert.equal(ExposureControl({ exposure: state }).props.children.at(-1).props.role, "status");
+  assert.equal(calls.at(-1).exposureMode, "continuous");
+  assert.deepEqual(errors, []);
+});
 
 test("scan errors give actionable summaries without exposing technical diagnostics", () => {
   const movement = errorSummary({ message: "Not enough camera movement or shared lights: 19 lights in 444 frames" });
@@ -10,6 +242,7 @@ test("scan errors give actionable summaries without exposing technical diagnosti
   assert.doesNotMatch(movement, /444 frames/);
   assert.match(errorSummary({ name: "RangeError", message: "allocation failed" }), /memory/i);
   assert.match(errorSummary({ name: "NotAllowedError", message: "Permission denied" }), /browser settings/i);
+  assert.match(errorSummary({ message: "Cannot set camera exposure: rejected" }), /camera exposure/i);
   assert.match(errorSummary({ message: "Cannot read this video" }), /MP4/);
 });
 

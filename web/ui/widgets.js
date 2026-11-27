@@ -8,6 +8,7 @@ export const CheckIcon = () => svg(html`<path d="M5 12.5l4.5 4.5L19 7.5"/>`, 20)
 export const UploadIcon = () => svg(html`<path d="M12 16V4M7 9l5-5 5 5M5 20h14"/>`, 20);
 export const DownloadIcon = () => svg(html`<path d="M12 4v12M7 11l5 5 5-5M5 20h14"/>`, 20);
 export const SunIcon = () => svg(html`<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.5 1.5M17.5 17.5L19 19M5 19l1.5-1.5M17.5 6.5L19 5"/>`, 18);
+export const CameraIcon = () => svg(html`<path d="M4 7h3l2-2h6l2 2h3v12H4z"/><circle cx="12" cy="13" r="3"/>`, 20);
 
 /**
  * A round "more" button with a dropdown. Items are {label, icon, checked, keepOpen, onSelect}

@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { colorFeatures, colorSamplingScale } from "../web/stationary.js";
+import { MAX_SPOTS_PER_FRAME, SPOT_SEPARATION } from "../web/config.js";
 import { nodePool } from "../scripts/node-pool.js";
 
 function light(coreRadius, point = { x: 64, y: 64 }) {
@@ -57,8 +58,25 @@ test("worker analysis uses the configured spot limit and supports an explicit ov
   }
   const pool = nodePool(1);
   try {
-    assert.equal((await pool.analyze({ width, height, data: data.slice() })).length, 500);
+    const all = await pool.analyze({ width, height, data: data.slice() }, { maxSpots: 600 });
+    assert.equal((await pool.analyze({ width, height, data: data.slice() })).length, Math.min(all.length, MAX_SPOTS_PER_FRAME));
     assert.equal((await pool.analyze({ width, height, data: data.slice() }, { maxSpots: 200 })).length, 200);
+  } finally {
+    pool.terminate();
+  }
+});
+
+test("worker analysis uses the configured spot separation and supports an explicit override", async () => {
+  const width = 128, height = 128, data = new Uint8ClampedArray(width * height * 4);
+  for (const cx of [50, 60]) for (let y = 61; y <= 67; y++) for (let x = cx - 3; x <= cx + 3; x++) {
+    data.set([255, 50, 10, 255], (y * width + x) * 4);
+  }
+  const pool = nodePool(1);
+  try {
+    assert.equal((await pool.analyze({ width, height, data: data.slice() }, { maxSpots: 2 })).length,
+      SPOT_SEPARATION > 5 ? 1 : 2);
+    assert.equal((await pool.analyze({ width, height, data: data.slice() }, { maxSpots: 2, separation: 4 })).length, 2);
+    assert.equal((await pool.analyze({ width, height, data: data.slice() }, { maxSpots: 2, separation: 7 })).length, 1);
   } finally {
     pool.terminate();
   }

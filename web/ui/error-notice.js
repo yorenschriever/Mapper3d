@@ -10,6 +10,7 @@ export function errorSummary({ message = "", name = "" }) {
   if (name === "NotAllowedError") return "Camera access was denied. Allow it in your browser settings, or upload a video.";
   if (name === "NotFoundError") return "No camera was found. Connect a camera or upload a video.";
   if (/camera needs a secure connection/i.test(message)) return "The camera needs a secure connection. Open this page over HTTPS or on localhost.";
+  if (/cannot set camera exposure/i.test(message)) return "Could not change camera exposure. Try another exposure setting or browser.";
   if (/not enough camera movement or shared lights/i.test(message)) {
     return "Could not build a 3D model. Move sideways around the lights and keep more of them in view.";
   }
