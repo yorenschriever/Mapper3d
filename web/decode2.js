@@ -1,4 +1,4 @@
-import { COLOR_COUNT, FIELD, FRAME_SLOTS, INDEX_SYMBOLS, COUNT_SYMBOLS, MAX_VALUE, wordSymbols } from "./code.js";
+import { COLOR_COUNT, FIELD, FRAME_SLOTS, INDEX_SYMBOLS, COUNT_SYMBOLS, MAX_VALUE, PERIOD_MS, wordSymbols } from "./code.js";
 
 /*
  * Decoder for protocol v2 on a stationary recording.
@@ -360,17 +360,12 @@ export function nullThreshold(allLikelihoods, { shuffles = 4, quantile = 0.999, 
  * lights: array of sample lists [{time, features}] (time in ms).
  * Returns { period, count, lights: [{ index, margin, accepted }] }.
  */
-export function decodeStationaryLights(lights, { periods = [120, 360], temperature = 3, rounds = 5, calibrateOn = null, fillFrom = null, maxFill = 2 } = {}) {
-  let best = null;
-  for (const period of periods) {
-    const folds = lights.map(samples => foldSamples(samples, period));
-    // The color calibration may rely on a trusted subset (e.g. tracklets that repeat with the code
-    // period) while every light is still decoded with the result.
-    const trusted = calibrateOn ? calibrateOn.map(i => folds[i]) : folds;
-    const calibration = findCalibration(trusted);
-    if (!best || calibration.score > best.calibration.score) best = { period, folds, trusted, calibration };
-  }
-  const { period, folds, trusted, calibration } = best;
+export function decodeStationaryLights(lights, { temperature = 3, rounds = 5, calibrateOn = null, fillFrom = null, maxFill = 2 } = {}) {
+  const period = PERIOD_MS;
+  const folds = lights.map(samples => foldSamples(samples, period));
+  // The color calibration may rely on a trusted subset while every light is decoded with the result.
+  const trusted = calibrateOn ? calibrateOn.map(i => folds[i]) : folds;
+  const calibration = findCalibration(trusted);
   let classifier = ColorClassifier.fromCenters(calibration.centers, calibration.assignment, trusted);
   let results = [], count = null, previous = null;
   for (let round = 0; round <= rounds; round++) {

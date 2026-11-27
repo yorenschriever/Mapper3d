@@ -5,12 +5,8 @@ export const INDEX_SYMBOLS = 10;
 export const COUNT_SYMBOLS = 4;
 export const FIELD = 23;
 export const MAX_VALUE = FIELD ** 3;
-export const PERIODS_MS = [120, 360];
+export const PERIOD_MS = 120;
 const OFFSET = [17, 3, 11, 20, 6, 14, 1, 9, 22, 12, 5, 18, 8, 15];
-
-export function periodForCount(count) {
-  return count <= 2000 ? PERIODS_MS[0] : PERIODS_MS[1];
-}
 
 /** Symbols (0..22) of a Reed-Solomon word for a number below 23^3. */
 export function wordSymbols(value, length, offset = 0) {

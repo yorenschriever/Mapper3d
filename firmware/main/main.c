@@ -63,7 +63,7 @@ static void startup_flash_sequence(led_strip_handle_t strip, unsigned int count)
 void app_main(void)
 {
     const unsigned int count = CONFIG_MAPPER_LED_COUNT;
-    const int64_t period_us = count <= 2000 ? 120000 : 360000;
+    const int64_t period_us = 120000;
     uint8_t (*words)[MAPPER_CODE_WORDS] = malloc(count * sizeof(*words));
     if (!words) {
         ESP_LOGE(TAG, "Insufficient memory for %u LED codewords", count);

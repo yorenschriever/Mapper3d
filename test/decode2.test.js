@@ -44,7 +44,24 @@ test("reports uncertainty when indices decode but count slots are missing", () =
     }
     return { samples };
   });
-  assert.throws(() => decodeTracks(tracks, { periods: [120] }), /Cannot reliably determine the LED count/);
+  assert.throws(() => decodeTracks(tracks), /Cannot reliably determine the LED count/);
+});
+
+test("decodes a count above 2000 using the fixed 120 ms period", () => {
+  const colors = [[1, 0, 0], [0, 1, 0], [0, 0, 1], [.707, .707, 0], [.707, 0, .707]];
+  const tracks = Array.from({ length: 8 }, (_, index) => {
+    const word = frameColors(index, 2001), samples = [];
+    for (let time = 0; time < 120 * 28 * 3; time += 30) {
+      const color = colors[word[Math.floor(time / 120) % word.length]];
+      samples.push({ time, x: index * 10, y: 100, features: [...color, 0, ...color, ...color] });
+    }
+    return { samples };
+  });
+  const result = decodeTracks(tracks);
+  assert.equal(result.count, 2001);
+  assert.equal(result.period, 120);
+  assert.deepEqual([...new Set(result.tracks.map(t => t.index))].sort((a, b) => a - b),
+    Array.from({ length: 8 }, (_, i) => i));
 });
 
 test("calibrates on verified repeating tracks when short clutter overwhelms the initial calibration", () => {
@@ -68,7 +85,7 @@ test("calibrates on verified repeating tracks when short clutter overwhelms the 
     }
     tracks.push({ samples });
   }
-  const result = decodeTracks(tracks, { periods: [120, 360] });
+  const result = decodeTracks(tracks);
   assert.equal(result.count, 10);
   assert.equal(result.period, 120);
   assert.deepEqual([...new Set(result.tracks.map(t => t.index))].sort((a, b) => a - b),

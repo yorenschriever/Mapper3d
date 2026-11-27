@@ -99,8 +99,8 @@ builds, real-device camera behavior or absolute 3D accuracy.
 The firmware and viewer use protocol v2:
 
 - Five colors: red, green, blue, yellow and magenta; all LEDs stay lit.
-- A frame is 28 slots, repeating forever. The symbol period is 120 ms up to
-  2,000 LEDs and 360 ms above that. The viewer currently scans at 120 ms.
+- A frame is 28 slots, repeating forever. The symbol period is 120 ms for
+  all LED counts. Large strips must finish updating within this period.
 - Two colors make one symbol of GF(23) (`5 * first + second`, always below
   23).
 - Slots 0-19 encode the LED index as 10 evaluations of a polynomial whose

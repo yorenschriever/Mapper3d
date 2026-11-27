@@ -34,7 +34,7 @@ test("finds and decodes every light of a stationary protocol v2 recording on its
   { skip: !existsSync(video) || !existsSync(annotationFile), timeout: 600000 }, async () => {
     const annotation = JSON.parse(readFileSync(annotationFile, "utf8"));
     for (const seconds of [32, 8]) {
-      const result = await scanStationary(() => readFrames(annotation.width, annotation.height, seconds), { periods: [120] });
+      const result = await scanStationary(() => readFrames(annotation.width, annotation.height, seconds));
       assert.equal(result.count, annotation.ledCount);
       assert.equal(result.lights.length, annotation.ledCount, `lights found in ${seconds}s`);
       for (const led of annotation.leds) {
@@ -70,7 +70,7 @@ async function* readMovingFrames() {
 test("decodes all 20 lights of a recording with a moving camera and reconstructs them in 3D",
   { skip: !existsSync(movingVideo), timeout: 900000 }, async () => {
     const pool = nodePool();
-    const result = await scanMoving(readMovingFrames(), { periods: [120], analyze: frame => pool.analyze(frame), concurrency: pool.size + 2 });
+    const result = await scanMoving(readMovingFrames(), { analyze: frame => pool.analyze(frame), concurrency: pool.size + 2 });
     pool.terminate();
     assert.equal(result.count, 20);
     const indices = new Set(result.tracks.map(t => t.index));
@@ -126,7 +126,7 @@ test("recovers the phone recording's count and reconstructs lights across the fo
     const pool = nodePool(6);
     let result;
     try {
-      result = await scanMoving(readPhoneFrames(), { periods: [120], analyze: frame => pool.analyze(frame), concurrency: pool.size + 2 });
+      result = await scanMoving(readPhoneFrames(), { analyze: frame => pool.analyze(frame), concurrency: pool.size + 2 });
     } finally {
       pool.terminate();
     }

@@ -42,7 +42,7 @@ function solve(tracks, { width, height }, onProgress, cancel) {
       reject(new Error(`${e.message || "The solving worker stopped without a message, most likely because it ran out of memory"}${where}`));
     };
     worker.onmessageerror = () => { worker.terminate(); reject(new Error("The solving worker sent data that could not be read")); };
-    worker.postMessage({ tracks, width, height, periods: [120] });
+    worker.postMessage({ tracks, width, height });
   });
 }
 

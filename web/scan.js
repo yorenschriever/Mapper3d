@@ -1,7 +1,7 @@
 import { LightDetector } from "./detect.js";
 import { colorFeatures } from "./stationary.js";
 import { decodeStationaryLights } from "./decode2.js";
-import { FRAME_SLOTS } from "./code.js";
+import { FRAME_SLOTS, PERIOD_MS } from "./code.js";
 import { analyzeFrame } from "./analyze.js";
 import { SpotTracker } from "./track.js";
 import { MAX_RETAINED_TRACKS, MAX_SPOTS_PER_FRAME, SPOT_SEPARATION } from "./config.js";
@@ -48,7 +48,7 @@ export async function scanStationary(openFrames, options = {}) {
 }
 
 /** Bump when frame analysis, tracking or descriptors change, so that cached tracks are not reused. */
-export const PIPELINE_VERSION = 5;
+export const PIPELINE_VERSION = 6;
 
 /** Maps `source` through async `fn` with up to `limit` calls in flight, yielding results in order. */
 export async function* orderedMap(source, fn, limit) {
@@ -65,7 +65,7 @@ export async function* orderedMap(source, fn, limit) {
  * (for example a worker pool); up to `concurrency` frames are analyzed at once.
  * Returns the tracklets with the most colorful samples first.
  */
-export async function trackFrames(frames, { analyze = analyzeFrame, concurrency = 1, maxTracks = MAX_RETAINED_TRACKS, minSamples = 30, minRepeat = MIN_REPEAT, periods = [120], onProgress } = {}) {
+export async function trackFrames(frames, { analyze = analyzeFrame, concurrency = 1, maxTracks = MAX_RETAINED_TRACKS, minSamples = 30, minRepeat = MIN_REPEAT, onProgress } = {}) {
   // Tracks that end before they have `minSamples` described samples can never be returned, so they are dropped as they end.
   const tracker = new SpotTracker({ minSamples });
   let n = 0;
@@ -75,7 +75,7 @@ export async function trackFrames(frames, { analyze = analyzeFrame, concurrency 
     onProgress?.({ frames: ++n, time, tracks: tracker.tracks.length });
   }
   // Clutter is dropped before the cap, so it cannot push real lights out of it.
-  const repeating = tracker.result(minSamples).filter(({ samples }) => repeatsWithCode(samples, periods, minRepeat));
+  const repeating = tracker.result(minSamples).filter(({ samples }) => repeatsWithCode(samples, minRepeat));
   return repeating.slice(0, maxTracks);
 }
 
@@ -83,9 +83,9 @@ export async function trackFrames(frames, { analyze = analyzeFrame, concurrency 
 export const MIN_REPEAT = 0.1;
 
 /** Whether a tracklet's colors repeat after one code frame. Tracklets too short to judge pass. */
-function repeatsWithCode(samples, periods, minRepeat) {
+function repeatsWithCode(samples, minRepeat) {
   const colored = samples.filter(s => s.features);
-  return !colored.length || Math.max(...periods.map(p => repeatScore(colored, p * FRAME_SLOTS))) >= minRepeat;
+  return !colored.length || repeatScore(colored, PERIOD_MS * FRAME_SLOTS) >= minRepeat;
 }
 
 /**
@@ -121,36 +121,31 @@ export function repeatScore(samples, lag, step = 8) {
  */
 export function decodeTracks(tracks, options = {}) {
   if (!tracks.length) return { count: 0, period: 0, tracks: [] };
-  const periods = options.periods ?? [120, 360];
   const all = tracks.map((t, k) => ({ k, samples: t.samples.filter(s => s.features) }));
-  const scores = all.map(({ samples }) => periods.map(p => repeatScore(samples, p * FRAME_SLOTS)));
+  const scores = all.map(({ samples }) => repeatScore(samples, PERIOD_MS * FRAME_SLOTS));
   // Tracklets that repeat with the code period may fill indices that no confident light has.
-  const fillFrom = all.map((_, i) => i).filter(i => Math.max(...scores[i]) >= 0.2);
-  const run = (kept, calibrateOn = null, period = null) => {
+  const fillFrom = all.map((_, i) => i).filter(i => scores[i] >= 0.2);
+  const run = (kept, calibrateOn = null) => {
     const result = decodeStationaryLights(kept.map(t => t.samples), {
-      ...options, ...(period === null ? {} : { periods: [period] }), calibrateOn, fillFrom,
+      ...options, calibrateOn, fillFrom,
     });
     return { result, kept, accepted: result.lights.filter(l => l.accepted).length };
   };
   let best = run(all);
-  const retryWith = (indices, period = null) => {
+  const retryWith = indices => {
     if (indices.length < 3 || indices.length === all.length) return;
-    const retry = run(all, indices, period);
+    const retry = run(all, indices);
     if ((retry.result.count !== null && best.result.count === null) ||
         ((retry.result.count === null) === (best.result.count === null) && retry.accepted > best.accepted)) best = retry;
   };
   if (best.result.count === null) {
     // Short tracks cannot establish a repeat: repeatScore deliberately gives them a neutral score of 1.
-    for (const period of [best.result.period, ...periods.filter(p => p !== best.result.period)]) {
-      const j = periods.indexOf(period);
-      const reliable = all.map((_, i) => i).filter(i =>
-        all[i].samples.at(-1).time - all[i].samples[0].time >= 1.2 * period * FRAME_SLOTS && scores[i][j] >= 0.35);
-      retryWith(reliable, period);
-      if (best.result.count !== null) break;
-    }
+    const reliable = all.map((_, i) => i).filter(i =>
+      all[i].samples.at(-1).time - all[i].samples[0].time >= 1.2 * PERIOD_MS * FRAME_SLOTS && scores[i] >= 0.35);
+    retryWith(reliable);
   }
   if (best.accepted < 3) {
-    retryWith(all.map((_, i) => i).filter(i => Math.max(...scores[i]) >= 0.35));
+    retryWith(all.map((_, i) => i).filter(i => scores[i] >= 0.35));
   }
   if (best.result.count === null && best.accepted) {
     throw new Error("Cannot reliably determine the LED count. Film more lights for longer with their colors clearly visible.");
@@ -178,7 +173,7 @@ export async function scanMoving(frames, { cache, cacheKey, analyze, concurrency
   const key = cacheKey && `${cacheKey}:v${PIPELINE_VERSION}:${maxTracks ?? MAX_RETAINED_TRACKS}:${minSamples ?? 30}:${MAX_SPOTS_PER_FRAME}:${SPOT_SEPARATION}`;
   let tracks = key && cache ? await cache.get(key) : null;
   if (!tracks) {
-    tracks = await trackFrames(typeof frames === "function" ? frames() : frames, { analyze, concurrency, maxTracks, minSamples, periods: options.periods, onProgress });
+    tracks = await trackFrames(typeof frames === "function" ? frames() : frames, { analyze, concurrency, maxTracks, minSamples, onProgress });
     tracks = tracks.map(t => ({ samples: t.samples.map(s => ({ time: s.time, x: s.x, y: s.y, features: s.features && s.features.map(v => +v.toFixed(4)) })) }));
     if (key && cache) await cache.set(key, tracks);
   }
