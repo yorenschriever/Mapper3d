@@ -186,7 +186,7 @@ screens are in `web/ui/`):
    menu has "Upload video…": the video then replays while its frames are analyzed.
 2. **Processing**: a progress ring and stage while the lights are decoded and reconstructed. The percentage is
    approximate: solving stages can take very different amounts of time.
-3. **Model**: initially viewed from the first registered camera's position and orientation; drag to orbit,
+3. **Model**: initially centered and fitted to the view; drag to rotate,
    pinch or wheel to zoom, shift-drag or two fingers to pan, tap a light to identify it.
    The menu toggles the string, the indices and the camera path, and exports the model as JSON or as a C++ header
    (`LED_POSITIONS[LED_COUNT]` of `{x, y, z}` floats by LED index, centered, z up and scaled to the farthest light
