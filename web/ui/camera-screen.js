@@ -37,7 +37,26 @@ function useExposure(stream) {
     if (capabilities) apply(track, Math.min(capabilities.max, Math.max(capabilities.min, DEFAULT_EV)));
   }, [track]);
   const apply = (t, ev) => t.applyConstraints({ advanced: [{ exposureMode: "continuous", exposureCompensation: ev }] }).catch(() => {});
-  return { range, value, set: ev => { setValue(ev); apply(track, ev); } };
+  // Freezes white balance and exposure at what the camera chose, so the colors stay comparable during a scan.
+  // Each setting is applied on its own, because a browser that lacks one rejects the whole constraint set.
+  const lock = () => {
+    if (!track) return;
+    const s = track.getSettings?.() ?? {}, c = track.getCapabilities?.() ?? {};
+    const hold = (mode, values) => {
+      if (!c[mode.name]?.includes?.("manual")) return;
+      const fixed = Object.fromEntries(values.filter(k => s[k] !== undefined).map(k => [k, s[k]]));
+      track.applyConstraints({ advanced: [{ [mode.name]: "manual", ...fixed }] }).catch(() => {});
+    };
+    hold({ name: "whiteBalanceMode" }, ["colorTemperature"]);
+    hold({ name: "exposureMode" }, ["exposureTime", "iso"]);
+  };
+  const unlock = () => {
+    if (!track) return;
+    const c = track.getCapabilities?.() ?? {};
+    if (c.whiteBalanceMode?.includes?.("continuous")) track.applyConstraints({ advanced: [{ whiteBalanceMode: "continuous" }] }).catch(() => {});
+    apply(track, value);
+  };
+  return { range, value, set: ev => { setValue(ev); apply(track, ev); }, lock, unlock };
 }
 
 /**
@@ -57,6 +76,11 @@ export function CameraScreen({ job, onRecord, onStop, onFile, onCancel }) {
     if (!recording) { setElapsed(0); return; }
     const timer = setInterval(() => setElapsed((performance.now() - job.startedAt) / 1000), 250);
     return () => clearInterval(timer);
+  }, [recording]);
+  useEffect(() => {
+    if (!recording) return;
+    exposure.lock();
+    return () => exposure.unlock();
   }, [recording]);
   useEffect(() => { if (replaying) job.preview.attach(replay.current); }, [replaying]);
 

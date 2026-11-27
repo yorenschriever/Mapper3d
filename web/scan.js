@@ -44,7 +44,7 @@ export async function scanStationary(openFrames, options = {}) {
 }
 
 /** Bump when frame analysis, tracking or descriptors change, so that cached tracks are not reused. */
-export const PIPELINE_VERSION = 3;
+export const PIPELINE_VERSION = 4;
 
 /** Maps `source` through async `fn` with up to `limit` calls in flight, yielding results in order. */
 export async function* orderedMap(source, fn, limit) {
@@ -61,15 +61,27 @@ export async function* orderedMap(source, fn, limit) {
  * (for example a worker pool); up to `concurrency` frames are analyzed at once.
  * Returns the tracklets with the most colorful samples first.
  */
-export async function trackFrames(frames, { analyze = analyzeFrame, concurrency = 1, maxTracks = 600, minSamples = 30, onProgress } = {}) {
-  const tracker = new SpotTracker();
+export async function trackFrames(frames, { analyze = analyzeFrame, concurrency = 1, maxTracks = 600, minSamples = 30, minRepeat = MIN_REPEAT, periods = [120], onProgress } = {}) {
+  // Tracks that end before they have `minSamples` described samples can never be returned, so they are dropped as they end.
+  const tracker = new SpotTracker({ minSamples });
   let n = 0;
   const analyzed = orderedMap(frames, async frame => [frame.time, await analyze(frame)], concurrency);
   for await (const [time, spots] of analyzed) {
     tracker.update(time, spots);
     onProgress?.({ frames: ++n, time, tracks: tracker.tracks.length });
   }
-  return tracker.result(minSamples).slice(0, maxTracks);
+  // Clutter is dropped before the cap, so it cannot push real lights out of it.
+  const repeating = tracker.result(minSamples).filter(({ samples }) => repeatsWithCode(samples, periods, minRepeat));
+  return repeating.slice(0, maxTracks);
+}
+
+/** Tracklets scoring below this on `repeatScore` do not repeat with the code period, so they are not lights. */
+export const MIN_REPEAT = 0.1;
+
+/** Whether a tracklet's colors repeat after one code frame. Tracklets too short to judge pass. */
+function repeatsWithCode(samples, periods, minRepeat) {
+  const colored = samples.filter(s => s.features);
+  return !colored.length || Math.max(...periods.map(p => repeatScore(colored, p * FRAME_SLOTS))) >= minRepeat;
 }
 
 /**
@@ -145,7 +157,7 @@ export async function scanMoving(frames, { cache, cacheKey, analyze, concurrency
   const key = cacheKey && `${cacheKey}:v${PIPELINE_VERSION}:${maxTracks ?? 600}:${minSamples ?? 30}`;
   let tracks = key && cache ? await cache.get(key) : null;
   if (!tracks) {
-    tracks = await trackFrames(typeof frames === "function" ? frames() : frames, { analyze, concurrency, maxTracks, minSamples, onProgress });
+    tracks = await trackFrames(typeof frames === "function" ? frames() : frames, { analyze, concurrency, maxTracks, minSamples, periods: options.periods, onProgress });
     tracks = tracks.map(t => ({ samples: t.samples.map(s => ({ time: s.time, x: s.x, y: s.y, features: s.features && s.features.map(v => +v.toFixed(4)) })) }));
     if (key && cache) await cache.set(key, tracks);
   }

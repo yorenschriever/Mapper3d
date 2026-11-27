@@ -55,7 +55,7 @@ export async function scan({ file, stream }, { signal, cancel, onProgress = () =
   try {
     tracks = await trackFrames(videoFrames(video, { signal, live: !file, fps: file ? 0 : LIVE_FPS, canvas: replay }), {
       analyze: frame => pool.analyze(frame),
-      concurrency: 2 * workerCount,
+      concurrency: workerCount + 2,
       onProgress: ({ frames, tracks: n }) => {
         analyzed = frames;
         if (frames % 5 === 0) onProgress({ phase: "analyze", frames, tracks: n, fraction: file ? Math.min(1, video.currentTime / video.duration) : undefined });

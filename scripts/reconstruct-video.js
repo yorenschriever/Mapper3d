@@ -39,7 +39,7 @@ const started = performance.now();
 const scan = await scanMoving(frames, {
   periods: [120],
   analyze: frame => pool.analyze(frame, JSON.parse(process.env.ANALYZE_OPTIONS ?? "{}")),
-  concurrency: 2 * pool.size,
+  concurrency: pool.size + 2,
   maxTracks: Number(process.env.MAX_TRACKS) || undefined,
   cache: fileCache(`${output}.cache.json`),
   cacheKey: `${video}:${stat.size}:${stat.mtimeMs}`,

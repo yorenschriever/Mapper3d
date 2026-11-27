@@ -69,7 +69,7 @@ async function* readMovingFrames() {
 test("decodes all 20 lights of a recording with a moving camera and reconstructs them in 3D",
   { skip: !existsSync(movingVideo), timeout: 900000 }, async () => {
     const pool = nodePool();
-    const result = await scanMoving(readMovingFrames(), { periods: [120], analyze: frame => pool.analyze(frame), concurrency: 2 * pool.size });
+    const result = await scanMoving(readMovingFrames(), { periods: [120], analyze: frame => pool.analyze(frame), concurrency: pool.size + 2 });
     pool.terminate();
     assert.equal(result.count, 20);
     const indices = new Set(result.tracks.map(t => t.index));

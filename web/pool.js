@@ -22,7 +22,7 @@ export class AnalysisPool {
     });
   }
 
-  /** Analyzes a frame; the frame's pixel buffer is copied, so the caller keeps its data. */
+  /** Analyzes a frame. The frame's pixel buffer is handed to the worker (not copied), so the caller must not use `frame.data` afterwards. */
   analyze(frame, options) {
     return new Promise((resolve, reject) => {
       this.queue.push({ frame, options, resolve, reject });
@@ -37,9 +37,10 @@ export class AnalysisPool {
     const id = this.nextId++;
     this.pending.set(id, { resolve, reject });
     worker.busy = true;
-    const copy = new Uint8ClampedArray(frame.data.length);
-    copy.set(frame.data);
-    worker.post({ id, width: frame.width, height: frame.height, data: copy.buffer, options }, [copy.buffer]);
+    let { buffer } = frame.data;
+    // A view on part of a larger buffer cannot be handed over whole, so only that part is copied.
+    if (frame.data.byteOffset !== 0 || frame.data.byteLength !== buffer.byteLength) buffer = buffer.slice(frame.data.byteOffset, frame.data.byteOffset + frame.data.byteLength);
+    worker.post({ id, width: frame.width, height: frame.height, data: buffer, options }, [buffer]);
   }
 
   terminate() {

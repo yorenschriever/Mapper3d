@@ -207,7 +207,8 @@ limit at hundreds of lights. Not done: WASM, WebGPU, and a cheap first-pass deco
 A file is read by seeking frame by frame rather than by playing it, so every frame arrives at the file's own frame rate even
 when the tab is in the background (realtime playback is throttled there and drops frames). The live camera is analyzed at 30 fps
 while its preview stays at the camera's rate, and exposure compensation is offered where the browser supports it
-(Chrome on Android). On `protocolv2_moving2.mp4` this finds 20 of 20 lights (median reprojection 1.0 px). The camera path
+(Chrome on Android). While recording, white balance and exposure are frozen at the values the camera had
+at the start, where the browser allows manual modes (otherwise they stay automatic). On `protocolv2_moving2.mp4` this finds 20 of 20 lights (median reprojection 1.0 px). The camera path
 has not been tried on a real device.
 
 ## Optical protocol v1

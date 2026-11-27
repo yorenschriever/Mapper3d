@@ -6,7 +6,8 @@
 const median = values => { const v = [...values].sort((a, b) => a - b); return v.length ? v[v.length >> 1] : 0; };
 
 export class SpotTracker {
-  constructor({ gate = 10, maxMissed = 4 } = {}) {
+  constructor({ gate = 10, maxMissed = 4, minSamples = 1 } = {}) {
+    this.minSamples = minSamples;
     this.gate = gate;
     this.maxMissed = maxMissed;
     this.tracks = [];
@@ -60,7 +61,7 @@ export class SpotTracker {
       if (usedTrack.has(t)) { alive.push(track); return; }
       track.x += steps * this.motion.x; track.y += steps * this.motion.y;
       track.missed += steps;
-      if (track.missed > this.maxMissed) this.finished.push(track); else alive.push(track);
+      if (track.missed > this.maxMissed) { if (this.described(track) >= this.minSamples) this.finished.push(track); } else alive.push(track);
     });
     spots.forEach((spot, s) => {
       if (usedSpot.has(s)) return;
@@ -69,10 +70,11 @@ export class SpotTracker {
     this.tracks = alive;
   }
 
+  described(track) { return track.samples.filter(s => s.features).length; }
+
   /** All tracks so far with at least `minSamples` samples that have a descriptor, most described samples first. */
-  result(minSamples = 1) {
-    const described = t => t.samples.filter(s => s.features).length;
-    return [...this.finished, ...this.tracks].map(t => ({ t, n: described(t) })).filter(({ n }) => n >= minSamples)
+  result(minSamples = this.minSamples) {
+    return [...this.finished, ...this.tracks].map(t => ({ t, n: this.described(t) })).filter(({ n }) => n >= minSamples)
       .sort((a, b) => b.n - a.n).map(({ t }) => t);
   }
 }
