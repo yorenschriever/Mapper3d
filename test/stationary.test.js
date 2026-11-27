@@ -47,11 +47,12 @@ test("finds and decodes every light of a stationary protocol v2 recording on its
 
 const movingVideo = fileURLToPath(new URL("./test_data/protocolv2_moving.mp4", import.meta.url));
 
-async function* readMovingFrames() {
+async function* readMovingFrames(video = movingVideo, seconds = null) {
   const width = 1280, height = 720, frameBytes = width * height * 4;
-  const times = execFileSync("ffprobe", ["-v", "error", "-select_streams", "v:0", "-show_entries", "frame=pts_time", "-of", "csv=p=0", movingVideo],
+  const times = execFileSync("ffprobe", ["-v", "error", "-select_streams", "v:0", "-show_entries", "frame=pts_time", "-of", "csv=p=0", video],
     { encoding: "utf8", maxBuffer: 1e8 }).trim().split("\n").map(t => Number(t) * 1000);
-  const ffmpeg = spawn("ffmpeg", ["-v", "error", "-i", movingVideo, "-f", "rawvideo", "-pix_fmt", "rgba", "-fps_mode", "passthrough", "-"],
+  const ffmpeg = spawn("ffmpeg", ["-v", "error", "-i", video, ...(seconds === null ? [] : ["-t", String(seconds)]),
+    "-f", "rawvideo", "-pix_fmt", "rgba", "-fps_mode", "passthrough", "-"],
     { stdio: ["ignore", "pipe", "inherit"] });
   let buffer = Buffer.allocUnsafe(frameBytes), filled = 0, frame = 0;
   for await (const chunk of ffmpeg.stdout) {
@@ -86,6 +87,25 @@ test("decodes all 20 lights of a recording with a moving camera and reconstructs
     const mean = spacing.reduce((a, b) => a + b) / spacing.length;
     const deviation = Math.sqrt(spacing.reduce((s, v) => s + (v - mean) ** 2, 0) / spacing.length);
     assert.ok(deviation / mean < 0.35, `neighbor spacing varies by ${(deviation / mean).toFixed(2)}`);
+  });
+
+const denseVideo = fileURLToPath(new URL("./test_data/20261127_182023.mp4", import.meta.url));
+
+test("decodes densely spaced lights from the 500-light recording",
+  { skip: !existsSync(denseVideo), timeout: 900000 }, async () => {
+    const pool = nodePool(4);
+    try {
+      const result = await scanMoving(readMovingFrames(denseVideo, 10), {
+        analyze: frame => pool.analyze(frame, { separation: 4, maxSpots: 1000 }),
+        concurrency: pool.size + 2, maxTracks: 1500,
+      });
+      assert.equal(result.count, 500);
+      const indices = new Set(result.tracks.map(t => t.index));
+      assert.ok(indices.size >= 450, `${indices.size} distinct indices decoded`);
+      assert.ok([...indices].every(i => i >= 0 && i < 500));
+    } finally {
+      pool.terminate();
+    }
   });
 
 const phoneVideo = fileURLToPath(new URL("./test_data/20261126_171504.mp4", import.meta.url));

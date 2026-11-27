@@ -3,6 +3,8 @@ import { CameraIcon, KebabMenu, SunIcon, UploadIcon } from "./widgets.js";
 
 // MediaTrack exposureTime is measured in units of 100 microseconds.
 const MAX_EXPOSURE_TIME = 10000 / 60;
+const INITIAL_EXPOSURE_TIME = 30;
+const MANUAL_ISO = 100;
 const CAMERA_STORAGE_KEY = "mapper3d.cameraDeviceId";
 
 const clock = seconds => `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
@@ -105,6 +107,14 @@ export function createExposureControls(track, onChange, onError, {
   const autoAvailable = capabilities.exposureMode?.includes("continuous") || (!capabilities.exposureMode && !!capabilities.exposureCompensation);
   const range = autoAvailable ? capabilities.exposureCompensation ?? null : null;
   const timeCapability = capabilities.exposureTime;
+  const isoCapability = capabilities.iso;
+  const isoStep = isoCapability?.step;
+  const isoOffset = (MANUAL_ISO - isoCapability?.min) / isoStep;
+  const manualIsoAvailable = Number.isFinite(isoCapability?.min) && Number.isFinite(isoCapability?.max)
+    ? MANUAL_ISO >= isoCapability.min && MANUAL_ISO <= isoCapability.max &&
+      (!(isoStep > 0) || Math.abs(isoOffset - Math.round(isoOffset)) < 1e-6)
+    : track.getSettings?.().iso !== undefined;
+  const manualIso = manualIsoAvailable ? MANUAL_ISO : undefined;
   let timeRange = null;
   if (capabilities.exposureMode?.includes("manual") && Number.isFinite(timeCapability?.min) && Number.isFinite(timeCapability?.max)) {
     // Chromium Android rounds sub-100 µs minima to zero, which it treats as "not set".
@@ -125,6 +135,11 @@ export function createExposureControls(track, onChange, onError, {
   };
   const update = changes => { state = { ...state, ...changes }; onChange(state); };
   const apply = constraints => track.applyConstraints({ advanced: [constraints] });
+  const manualExposure = time => ({
+    exposureMode: "manual",
+    ...(time !== undefined && { exposureTime: time }),
+    ...(manualIso !== undefined && { iso: manualIso }),
+  });
   const applyAuto = async value => {
     if (!autoAvailable) throw new Error("Automatic exposure is not supported by this camera.");
     await apply({ exposureMode: "continuous", ...(range && { exposureCompensation: value }) });
@@ -165,7 +180,7 @@ export function createExposureControls(track, onChange, onError, {
       await apply({ exposureMode: "manual" });
       await settled(manualMode);
     }
-    await apply({ exposureMode: "manual", exposureTime: time });
+    await apply(manualExposure(time));
     const mismatch = settings => {
       if (!manualMode(settings)) return `The camera did not enable manual exposure (reported mode: ${settings.exposureMode}).`;
       if (settings.exposureMode === "none" && !Number.isFinite(settings.exposureTime)) {
@@ -174,13 +189,16 @@ export function createExposureControls(track, onChange, onError, {
       if (settings.exposureTime !== undefined && Math.abs(settings.exposureTime - time) > (timeRange.step || 0) / 2 + 1e-6) {
         return `The camera did not apply the requested exposure time (requested: ${time}, reported: ${settings.exposureTime}).`;
       }
+      if (manualIso !== undefined && settings.iso !== undefined && settings.iso !== manualIso) {
+        return `The camera did not apply ISO ${manualIso} (reported: ${settings.iso}).`;
+      }
       return null;
     };
     let settings = await settled(settings => !mismatch(settings));
     if (mismatch(settings)) {
       await apply({ exposureMode: "manual" });
       await settled(manualMode);
-      await apply({ exposureMode: "manual", exposureTime: time });
+      await apply(manualExposure(time));
       settings = await settled(settings => !mismatch(settings));
     }
     const failure = mismatch(settings);
@@ -192,7 +210,7 @@ export function createExposureControls(track, onChange, onError, {
     manualUsable = true;
     update({
       time: settings.exposureTime ?? time, mode: "manual",
-      warning: settings.exposureMode === "none" ? "Camera reports exposure mode 'none'. Check that changing the time affects the preview." : null,
+      warning: null,
     });
   };
   const setCompensation = value => run(() => applyAuto(value));
@@ -216,22 +234,38 @@ export function createExposureControls(track, onChange, onError, {
   const lock = () => run(async () => {
     const settings = track.getSettings?.() ?? {};
     if (capabilities.whiteBalanceMode?.includes("manual")) {
-      await apply({ whiteBalanceMode: "manual", ...(settings.colorTemperature !== undefined && { colorTemperature: settings.colorTemperature }) });
+      const temperatureRange = capabilities.colorTemperature;
+      const { min, max, step } = temperatureRange ?? {};
+      let colorTemperature;
+      if (Number.isFinite(settings.colorTemperature) && Number.isFinite(min) && Number.isFinite(max)) {
+        const supportedMax = step > 0 ? Math.min(max, min + Math.floor((max - min) / step + 1e-10) * step) : max;
+        if (supportedMax >= min) {
+          const bounded = Math.max(min, Math.min(supportedMax, settings.colorTemperature));
+          colorTemperature = step > 0 ? min + Math.round((bounded - min) / step) * step : bounded;
+        }
+      }
+      await apply({ whiteBalanceMode: "manual", ...(colorTemperature !== undefined && { colorTemperature }) });
     }
     if (manualUsable && capabilities.exposureMode?.includes("manual")) {
-      const fixed = Object.fromEntries(["exposureTime", "iso"].filter(k => settings[k] !== undefined).map(k => [k, settings[k]]));
+      const fixed = Object.fromEntries(["exposureTime"].filter(k => settings[k] !== undefined).map(k => [k, settings[k]]));
+      if (manualIso !== undefined) fixed.iso = manualIso;
       await apply({ exposureMode: "manual", ...fixed });
     }
   });
   const unlock = () => run(async () => {
     if (capabilities.whiteBalanceMode?.includes("continuous")) await apply({ whiteBalanceMode: "continuous" });
-    if (state.mode === "manual") await apply({ exposureMode: "manual", exposureTime: state.time });
+    if (state.mode === "manual") await apply(manualExposure(state.time));
     else if (range) await apply({ exposureMode: "continuous", exposureCompensation: state.value });
     else if (capabilities.exposureMode?.includes("continuous")) await apply({ exposureMode: "continuous" });
   });
   onChange(state);
-  if (autoAvailable) setCompensation(state.value);
-  else if (timeRange) setTime(timeRange.min);
+  if (timeRange) {
+    const requested = Math.max(timeRange.min, Math.min(timeRange.max, INITIAL_EXPOSURE_TIME));
+    const initialTime = timeRange.step > 0
+      ? Math.min(timeRange.max, timeRange.min + Math.round((requested - timeRange.min) / timeRange.step) * timeRange.step)
+      : requested;
+    setTime(initialTime);
+  } else if (autoAvailable) setCompensation(state.value);
   return { set: setCompensation, setTime, setMode: selectMode, lock, unlock };
 }
 

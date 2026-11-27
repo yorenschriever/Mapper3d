@@ -31,13 +31,14 @@ test("the selected camera stays usable when optional capture preferences fail", 
   assert.equal(warn.mock.callCount(), 1);
 });
 
-test("exposure starts in auto at minimum compensation and preserves manual settings", async () => {
+test("exposure starts in manual at 3ms and preserves manual settings", async () => {
   const calls = [], changes = [], errors = [];
   const settings = { exposureMode: "continuous", exposureTime: 50, iso: 100, colorTemperature: 4000 };
   const track = {
     getCapabilities: () => ({
       exposureMode: ["continuous", "manual"], exposureCompensation: { min: -5, max: 2, step: 0.1 },
-      exposureTime: { min: 5, max: 500, step: 5 }, whiteBalanceMode: ["continuous", "manual"],
+      exposureTime: { min: 5, max: 500, step: 5 }, iso: { min: 100, max: 800, step: 100 },
+      whiteBalanceMode: ["continuous", "manual"],
     }),
     getSettings: () => ({ ...settings }),
     async applyConstraints({ advanced: [value] }) { calls.push(value); Object.assign(settings, value); },
@@ -45,17 +46,17 @@ test("exposure starts in auto at minimum compensation and preserves manual setti
   const controls = createExposureControls(track, state => changes.push(state), error => errors.push(error));
   await controls.setMode("manual");
   assert.deepEqual(calls.slice(0, 3), [
-    { exposureMode: "continuous", exposureCompensation: -5 },
     { exposureMode: "manual" },
-    { exposureMode: "manual", exposureTime: 5 },
+    { exposureMode: "manual", exposureTime: 30, iso: 100 },
+    { exposureMode: "manual", exposureTime: 30, iso: 100 },
   ]);
-  assert.equal(settings.exposureTime, 5);
+  assert.equal(settings.exposureTime, 30);
   assert.equal(changes[0].mode, "auto");
   assert.equal(changes[0].value, -5);
   assert.equal(changes.at(-1).timeRange.max, 165);
   await controls.setTime(30);
   await controls.unlock();
-  assert.deepEqual(calls.at(-1), { exposureMode: "manual", exposureTime: 30 });
+  assert.deepEqual(calls.at(-1), { exposureMode: "manual", exposureTime: 30, iso: 100 });
   await controls.setMode("auto");
   await controls.set(-1);
   assert.equal(changes.at(-1).mode, "auto");
@@ -63,6 +64,7 @@ test("exposure starts in auto at minimum compensation and preserves manual setti
   assert.equal(settings.exposureTime, 30);
   await controls.setMode("auto");
   await controls.lock();
+  assert.deepEqual(calls.at(-1), { exposureMode: "manual", exposureTime: 30, iso: 100 });
   await controls.unlock();
   assert.deepEqual(calls.at(-1), { exposureMode: "continuous", exposureCompensation: -1 });
   assert.deepEqual(errors, []);
@@ -78,6 +80,20 @@ test("failure to apply minimum compensation is reported", async () => {
   const controls = createExposureControls(track, () => {}, error => errors.push(error), { wait: async () => {} });
   await controls.set(-4);
   assert.match(errors.at(-1).message, /exposure compensation/);
+});
+
+test("manual white balance clamps the reported color temperature to camera limits", async () => {
+  const calls = [];
+  const track = {
+    getCapabilities: () => ({
+      whiteBalanceMode: ["continuous", "manual"], colorTemperature: { min: 2500, max: 6500, step: 100 },
+    }),
+    getSettings: () => ({ colorTemperature: 9000 }),
+    async applyConstraints({ advanced: [value] }) { calls.push(value); },
+  };
+  const controls = createExposureControls(track, () => {}, () => {});
+  await controls.lock();
+  assert.deepEqual(calls, [{ whiteBalanceMode: "manual", colorTemperature: 6500 }]);
 });
 
 test("manual exposure range respects 1/60 second, camera limits and steps", async () => {
@@ -158,9 +174,13 @@ test("manual exposure switches modes before setting the time", async () => {
   };
   const controls = createExposureControls(track, value => states.push(value), error => errors.push(error), { wait: async () => {} });
   await controls.setMode("manual");
-  assert.deepEqual(calls.slice(1, 3), [{ exposureMode: "manual" }, { exposureMode: "manual", exposureTime: 5 }]);
+  assert.deepEqual(calls.slice(0, 3), [
+    { exposureMode: "manual" },
+    { exposureMode: "manual", exposureTime: 30 },
+    { exposureMode: "manual", exposureTime: 30 },
+  ]);
   assert.equal(states.at(-1).mode, "manual");
-  assert.equal(settings.exposureTime, 5);
+  assert.equal(settings.exposureTime, 30);
   assert.deepEqual(errors, []);
 });
 
@@ -197,7 +217,7 @@ test("Chromium Android mode 'none' allows time control only when the time matche
   await controls.setTime(30);
   assert.equal(states.at(-1).mode, "manual");
   assert.equal(states.at(-1).time, 30);
-  assert.match(states.at(-1).warning, /reports exposure mode 'none'/);
+  assert.equal(states.at(-1).warning, null);
   assert.deepEqual(errors, []);
 });
 
@@ -210,8 +230,8 @@ test("Chromium Android uses the first positive step when the reported minimum is
   const controls = createExposureControls(track, value => states.push(value), error => errors.push(error), { androidChromium: true });
   await controls.lock();
   assert.equal(states.at(-1).timeRange.min, 0.1);
-  assert.equal(states.at(-1).time, 0.1);
-  assert.equal(calls[1].exposureTime, 0.1);
+  assert.ok(Math.abs(states.at(-1).time - 30) < 1e-6);
+  assert.ok(Math.abs(calls[1].exposureTime - 30) < 1e-6);
   assert.deepEqual(errors, []);
 });
 
@@ -244,6 +264,7 @@ test("scan errors give actionable summaries without exposing technical diagnosti
   assert.match(errorSummary({ name: "NotAllowedError", message: "Permission denied" }), /browser settings/i);
   assert.match(errorSummary({ message: "Cannot set camera exposure: rejected" }), /camera exposure/i);
   assert.match(errorSummary({ message: "Cannot read this video" }), /MP4/);
+  assert.match(errorSummary({ message: "Unexpected error" }), /open Details/);
 });
 
 test("processing displays a percentage when progress is known and spins otherwise", () => {

@@ -105,9 +105,35 @@ export function glowColorfulness(image, cx, cy) {
   return size < 8 ? 0 : Math.hypot(diff[0] - grey, diff[1] - grey, diff[2] - grey) / size;
 }
 
+function crowdedFeatures(image, spot, minColorfulness) {
+  const { width, height, data } = image;
+  const rgb = [0, 0, 0];
+  let count = 0;
+  for (let dy = -2; dy <= 2; dy++) {
+    for (let dx = -2; dx <= 2; dx++) {
+      const x = Math.round(spot.x) + dx, y = Math.round(spot.y) + dy;
+      if (x < 0 || y < 0 || x >= width || y >= height) continue;
+      const i = (y * width + x) * 4;
+      for (let c = 0; c < 3; c++) rgb[c] += data[i + c];
+      count++;
+    }
+  }
+  const size = Math.hypot(...rgb);
+  if (!count || !size) return null;
+  const grey = (rgb[0] + rgb[1] + rgb[2]) / 3;
+  if (Math.hypot(...rgb.map(v => v - grey)) / size < minColorfulness) return null;
+  const color = rgb.map(v => v / size);
+  return [...color, Math.min(...rgb) / Math.max(...rgb), ...color, ...color];
+}
+
 /** Detects spots and describes the colorful ones: [{x, y, contrast, features | null}]. */
 export function analyzeFrame(image, { minColorfulness = 0.08, ...options } = {}) {
-  return detectSpots(image, options).map(spot => {
+  const spots = detectSpots(image, options);
+  return spots.map((spot, i) => {
+    // The usual glow rings can include a neighboring light; sample the core instead.
+    if (spots.some((other, j) => i !== j && Math.hypot(spot.x - other.x, spot.y - other.y) < 20)) {
+      return { ...spot, features: crowdedFeatures(image, spot, minColorfulness) };
+    }
     const scale = colorSamplingScale(image, spot);
     return {
       ...spot,

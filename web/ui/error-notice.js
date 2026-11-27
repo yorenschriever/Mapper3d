@@ -1,4 +1,5 @@
 import { html, useState } from "../vendor/preact.js";
+import { CloseIcon, CopyIcon } from "./widgets.js";
 
 export function errorSummary({ message = "", name = "" }) {
   if (/previous scan stopped unexpectedly/i.test(message)) {
@@ -23,7 +24,7 @@ export function errorSummary({ message = "", name = "" }) {
   if (/video|mp4|codec/i.test(message)) {
     return "Could not read the video. Try a supported MP4 file or a current version of Chrome.";
   }
-  return "The scan could not be completed. Try again, or open the technical details for more information.";
+  return "The scan could not be completed. Try again, or open Details for more information.";
 }
 
 export function ErrorNotice({ error, onDismiss }) {
@@ -34,20 +35,20 @@ export function ErrorNotice({ error, onDismiss }) {
       await navigator.clipboard.writeText(error.details);
       setCopyStatus("Copied.");
     } catch {
-      setCopyStatus("Could not copy. Select the technical details and copy them manually.");
+      setCopyStatus("Could not copy. Select the details and copy them manually.");
     }
   };
   return html`
     <div class="toast" role="alert">
-      <div class="error-heading"><strong>Scan problem</strong><button class="error-dismiss" onClick=${onDismiss}>Dismiss</button></div>
+      <div class="error-heading"><strong>Scan problem</strong><button type="button" class="error-dismiss" aria-label="Dismiss" onClick=${onDismiss}><${CloseIcon} /></button></div>
       <p>${errorSummary(error)}</p>
       <details>
-        <summary>Technical details</summary>
+        <summary>Details</summary>
         <pre>${error.details}</pre>
+        <div class="error-actions">
+          <button type="button" class="error-copy" aria-label="Copy details" title="Copy details" onClick=${copy}><${CopyIcon} /></button>
+          <span role="status">${copyStatus}</span>
+        </div>
       </details>
-      <div class="error-actions">
-        <button class="error-copy" onClick=${copy}>Copy details</button>
-        <span role="status">${copyStatus}</span>
-      </div>
     </div>`;
 }

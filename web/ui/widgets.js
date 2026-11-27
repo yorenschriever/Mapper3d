@@ -5,6 +5,8 @@ const svg = (path, size = 24) => html`<svg viewBox="0 0 24 24" width=${size} hei
 export const KebabIcon = () => html`<svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg>`;
 export const BackIcon = () => svg(html`<path d="M15 5l-7 7 7 7"/>`);
 export const CheckIcon = () => svg(html`<path d="M5 12.5l4.5 4.5L19 7.5"/>`, 20);
+export const CloseIcon = () => svg(html`<path d="M18 6 6 18M6 6l12 12"/>`, 20);
+export const CopyIcon = () => svg(html`<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>`, 20);
 export const UploadIcon = () => svg(html`<path d="M12 16V4M7 9l5-5 5 5M5 20h14"/>`, 20);
 export const DownloadIcon = () => svg(html`<path d="M12 4v12M7 11l5 5 5-5M5 20h14"/>`, 20);
 export const SunIcon = () => svg(html`<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.5 1.5M17.5 17.5L19 19M5 19l1.5-1.5M17.5 6.5L19 5"/>`, 18);

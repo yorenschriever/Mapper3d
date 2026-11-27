@@ -81,6 +81,14 @@ contaminate each other's color samples. Reconstruction needs enough parallax
 and non-flat structure; frames with too few known lights may be skipped.
 Camera drift, reflections and imperfect detections can distort positions.
 
+For a dense 500-light recording, try `SPOT_SEPARATION = 4`,
+`MAX_SPOTS_PER_FRAME = 1000`, and `MAX_RETAINED_TRACKS = 1500` in
+`web/config.js`. Separation is measured on the half-resolution detection
+image. Nearby spots use smaller color samples to reduce contamination, but
+clipped or overlapping lights may still be missed. These settings increase
+memory and processing demands and have not yet produced a complete 500-light
+reconstruction.
+
 ## Tests
 
 From the project root:

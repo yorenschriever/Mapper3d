@@ -47,7 +47,7 @@ button { font: inherit; color: inherit; }
 .camera-message { position: absolute; left: 24px; right: 24px; top: 50%; transform: translateY(-50%); text-align: center; color: var(--muted); }
 .camera-warning { max-width: min(360px, 100%); padding: 8px 12px; border-radius: 12px; background: var(--glass); color: #ffde83; text-align: center; font-size: 13px; }
 .timer { display: flex; align-items: center; gap: 8px; padding: 6px 14px; border-radius: 999px; background: var(--accent); font-weight: 600;
-         font-variant-numeric: tabular-nums; opacity: 0; transition: opacity 0.2s; position: absolute; left: 50%; transform: translateX(-50%); }
+         font-variant-numeric: tabular-nums; opacity: 0; transition: opacity 0.2s; position: absolute; top: calc(var(--safe-top) + 14px); left: 50%; transform: translateX(-50%); }
 .timer.visible { opacity: 1; }
 .timer .dot { width: 8px; height: 8px; border-radius: 50%; background: #fff; animation: blink 1.2s ease-in-out infinite; }
 @keyframes blink { 50% { opacity: 0.25; } }
@@ -108,6 +108,7 @@ button { font: inherit; color: inherit; }
 .toast summary { cursor: pointer; font-weight: 600; }
 .toast pre { white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.4 ui-monospace, monospace; }
 .error-heading, .error-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.error-dismiss, .error-copy { border: 1px solid rgba(255, 255, 255, 0.6); border-radius: 8px; background: transparent; padding: 8px 12px; cursor: pointer; }
+.error-dismiss, .error-copy { width: 40px; height: 40px; display: grid; place-items: center; border: 1px solid rgba(255, 255, 255, 0.6); border-radius: 50%; background: transparent; padding: 0; cursor: pointer; }
+.error-actions { justify-content: flex-start; margin-top: 10px; }
 .error-actions span { font-size: 12px; }
 

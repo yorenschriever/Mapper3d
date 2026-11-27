@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { colorFeatures, colorSamplingScale } from "../web/stationary.js";
 import { MAX_SPOTS_PER_FRAME, SPOT_SEPARATION } from "../web/config.js";
 import { nodePool } from "../scripts/node-pool.js";
+import { analyzeFrame } from "../web/analyze.js";
 
 function light(coreRadius, point = { x: 64, y: 64 }) {
   const width = 128, height = 128, data = new Uint8ClampedArray(width * height * 4);
@@ -80,4 +81,18 @@ test("worker analysis uses the configured spot separation and supports an explic
   } finally {
     pool.terminate();
   }
+});
+
+test("nearby lights retain separate positions and colors", () => {
+  const width = 128, height = 128, data = new Uint8ClampedArray(width * height * 4);
+  for (const [cx, color] of [[50, [255, 40, 10]], [60, [10, 40, 255]]]) {
+    for (let y = 61; y <= 67; y++) for (let x = cx - 3; x <= cx + 3; x++) {
+      data.set([...color, 255], (y * width + x) * 4);
+    }
+  }
+  const spots = analyzeFrame({ width, height, data }, { separation: 4 }).sort((a, b) => a.x - b.x);
+  assert.equal(spots.length, 2);
+  assert.ok(Math.abs(spots[0].x - 50) < 2 && Math.abs(spots[1].x - 60) < 2);
+  assert.ok(spots[0].features[0] > 0.9 && spots[0].features[2] < 0.2);
+  assert.ok(spots[1].features[2] > 0.9 && spots[1].features[0] < 0.2);
 });

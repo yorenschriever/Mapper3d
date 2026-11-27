@@ -48,7 +48,7 @@ export async function scanStationary(openFrames, options = {}) {
 }
 
 /** Bump when frame analysis, tracking or descriptors change, so that cached tracks are not reused. */
-export const PIPELINE_VERSION = 6;
+export const PIPELINE_VERSION = 7;
 
 /** Maps `source` through async `fn` with up to `limit` calls in flight, yielding results in order. */
 export async function* orderedMap(source, fn, limit) {
