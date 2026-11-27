@@ -30,7 +30,7 @@ const handler = (req, res) => {
 };
 (plain ? createHttp(handler) : createHttps({ key: readFileSync(key), cert: readFileSync(cert) }, handler)).listen(port, "0.0.0.0", () => {
   for (const list of Object.values(networkInterfaces())) {
-    for (const a of list ?? []) if (a.family === "IPv4" && !a.internal) console.log(`http${plain ? "" : "s"}://${a.address}:${port}/viewer.html`);
+    for (const a of list ?? []) if (a.family === "IPv4" && !a.internal) console.log(`http${plain ? "" : "s"}://${a.address}:${port}/index.html`);
   }
   console.log("The certificate is self-signed: accept the browser warning once.");
 });

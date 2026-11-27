@@ -2,13 +2,7 @@
   "name": "mapper3d",
   "private": true,
   "type": "module",
-  "dependencies": {
-    "@techstark/opencv-js": "4.12.0-release.1",
-    "mp4box": "0.5.4"
-  },
   "scripts": {
-    "postinstall": "node scripts/setup-opencv.js",
-    "setup:slam": "node scripts/setup-slam.js",
     "serve": "node scripts/serve.js",
     "test": "node --test"
   }
