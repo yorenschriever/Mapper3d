@@ -3,15 +3,15 @@
  * A file is read by seeking frame by frame, so every frame is delivered at the file's own frame rate,
  * and a background tab or slow analysis cannot make playback skip frames. A webcam stream is played live;
  * with `fps`, frames closer together than 1/fps are skipped (the <video> element itself, and so a preview,
- * keeps its full rate). Ends when the video ends or `signal` aborts.
+ * keeps its full rate). Ends when the video ends or `signal` aborts. A file's frames are drawn on `canvas`
+ * (made if not given), which can be shown as a replay: unlike a seeking <video>, it is painted on every browser.
  */
-export async function* videoFrames(video, { signal, live = false, fps = 0 } = {}) {
+export async function* videoFrames(video, { signal, live = false, fps = 0, canvas } = {}) {
   if (live) yield* liveFrames(video, { signal, fps });
-  else yield* fileFrames(video, { signal });
+  else yield* fileFrames(video, { signal, canvas });
 }
 
-async function* fileFrames(video, { signal }) {
-  const canvas = document.createElement("canvas");
+async function* fileFrames(video, { signal, canvas = document.createElement("canvas") }) {
   canvas.width = video.videoWidth; canvas.height = video.videoHeight;
   const ctx = canvas.getContext("2d", { willReadFrequently: true });
   const seek = time => new Promise((resolve, reject) => {
@@ -49,8 +49,10 @@ async function* fileFrames(video, { signal }) {
     const image = ctx.getImageData(0, 0, canvas.width, canvas.height);
     yield { width: canvas.width, height: canvas.height, data: image.data, time: mediaTime * 1000 };
     // Aim in the middle of the next frame's interval, so rounding never lands on the current frame.
-    const next = await shownTime(mediaTime + 1.5 * step);
-    if (next <= mediaTime) break;
+    // Some browsers land on the same frame; retry further ahead before giving up.
+    let next = mediaTime;
+    for (let ahead = 1.5; ahead <= 6 && next <= mediaTime + 1e-4; ahead += 1.5) next = await shownTime(mediaTime + ahead * step);
+    if (next <= mediaTime + 1e-4) break;
     mediaTime = next;
   }
 }

@@ -4,7 +4,7 @@ import { CameraScreen } from "./camera-screen.js";
 import { ModelScreen } from "./model-screen.js";
 import { ProcessingScreen } from "./processing-screen.js";
 
-/** Holds the replaying <video> of a file scan until the camera screen has a place for it. */
+/** Holds the replay canvas of a file scan until the camera screen has a place for it. */
 function previewHolder() {
   return {
     el: null, video: null,
