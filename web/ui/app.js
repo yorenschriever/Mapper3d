@@ -1,5 +1,6 @@
 import { html, render, useEffect, useRef, useState } from "../vendor/preact.js";
 import { scan } from "../scan-app.js";
+import { describePreviousCrash } from "../diagnostics.js";
 import { CameraScreen } from "./camera-screen.js";
 import { ModelScreen } from "./model-screen.js";
 import { ProcessingScreen } from "./processing-screen.js";
@@ -19,6 +20,9 @@ function App() {
   const [model, setModel] = useState(null);
   const [error, setError] = useState(null);
   const running = useRef(null), wakeLock = useRef(null);   // {stop, cancel}: controllers of the running scan
+
+  // A page killed during a scan (usually out of memory) leaves a trace behind.
+  useEffect(() => { const crash = describePreviousCrash(); if (crash) setError(crash); }, []);
 
   // ?model=<url> opens a finished model directly (for development).
   useEffect(() => {
@@ -45,7 +49,7 @@ function App() {
       setModel(result);
       setScreen("model");
     } catch (e) {
-      if (!mine.cancel.signal.aborted) { setError(e.message); setScreen("camera"); }
+      if (!mine.cancel.signal.aborted) { console.error(e.details ?? e); setError(e.details ?? e.message); setScreen("camera"); }
     } finally {
       if (running.current === mine) { running.current = null; setJob(null); }
       wakeLock.current?.release?.().catch(() => {});

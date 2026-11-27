@@ -1,3 +1,10 @@
+/** Include the browser's media error: code 4 can mean an unsupported format or an inaccessible file. */
+export function videoReadError(video, stage) {
+  const error = video.error;
+  const detail = error ? ` (media error ${error.code}${error.message ? `: ${error.message}` : ""})` : "";
+  return new Error(`Cannot read this video ${stage}${detail}`);
+}
+
 /**
  * Turns a <video> into an async iterable of {width, height, data, time (ms)} frames.
  * A file is read by seeking frame by frame, so every frame is delivered at the file's own frame rate,
@@ -16,7 +23,7 @@ async function* fileFrames(video, { signal, canvas = document.createElement("can
   const ctx = canvas.getContext("2d", { willReadFrequently: true });
   const seek = time => new Promise((resolve, reject) => {
     video.onseeked = resolve;
-    video.onerror = () => reject(new Error("Cannot read this video"));
+    video.onerror = () => reject(videoReadError(video, `while seeking to ${time.toFixed(3)} s`));
     video.currentTime = time;
   });
   // Presentation time of the frame shown after a seek; falls back to currentTime where callbacks are unavailable.

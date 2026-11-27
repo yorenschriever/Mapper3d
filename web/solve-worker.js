@@ -5,7 +5,9 @@ import { framesFromTracks, modelToJson, reconstruct } from "./reconstruct.js";
 self.onmessage = ({ data: { tracks, width, height, periods } }) => {
   try {
     self.postMessage({ progress: 0.02 });
+    self.postMessage({ stage: `decoding ${tracks.length} tracks` });
     const scan = decodeTracks(tracks, { periods });
+    self.postMessage({ stage: `reconstructing from ${scan.tracks.length} decoded tracks` });
     if (!scan.tracks.length) throw new Error("No lights could be decoded. Film the whole string for longer, in a darker room.");
     self.postMessage({ progress: 0.2 });
     const model = reconstruct(framesFromTracks(scan.tracks, 4), {
@@ -15,6 +17,6 @@ self.onmessage = ({ data: { tracks, width, height, periods } }) => {
     });
     self.postMessage({ model: modelToJson(model, { count: scan.count, width, height }) });
   } catch (error) {
-    self.postMessage({ error: error.message });
+    self.postMessage({ error: { name: error.name, message: error.message, stack: error.stack } });
   }
 };

@@ -202,10 +202,13 @@ limit at hundreds of lights. Not done: WASM, WebGPU, and a cheap first-pass deco
 
 ### Scanning in the browser
 
-`viewer.html` scans the camera or an uploaded video file with the same pipeline (`web/scan-app.js`,
-`web/capture.js`): frames go to a worker pool, then `web/solve-worker.js` decodes and reconstructs off the UI thread.
-A file is read by seeking frame by frame rather than by playing it, so every frame arrives at the file's own frame rate even
-when the tab is in the background (realtime playback is throttled there and drops frames). The live camera is analyzed at 30 fps
+`viewer.html` scans the camera or an uploaded video file with the same pipeline (`web/scan-app.js`):
+frames go to a worker pool, then `web/solve-worker.js` decodes and reconstructs off the UI thread.
+Uploaded files are decoded sequentially with WebCodecs and the vendored MP4Box.js demuxer, without seeking
+or relying on realtime playback. File scanning requires WebCodecs and a supported codec in a non-fragmented
+MP4; unsupported browsers, formats and codecs report an error. The MP4 metadata may be read from the end of
+the file before its media data is streamed. MP4Box.js is vendored in `web/vendor/` with its license, so
+the app still runs without a build step. The live camera is analyzed at 30 fps
 while its preview stays at the camera's rate, and exposure compensation is offered where the browser supports it
 (Chrome on Android). While recording, white balance and exposure are frozen at the values the camera had
 at the start, where the browser allows manual modes (otherwise they stay automatic). On `protocolv2_moving2.mp4` this finds 20 of 20 lights (median reprojection 1.0 px). The camera path

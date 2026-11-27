@@ -1,6 +1,6 @@
 /**
  * A pool of frame-analysis workers. `spawn()` returns {post(message, transfer), onMessage(handler),
- * terminate()}; it is injected so that the same pool runs on Web Workers and Node worker threads.
+ * terminate(), optionally onError(handler)}; it is injected so that the same pool runs on Web Workers and Node worker threads.
  */
 export class AnalysisPool {
   constructor(spawn, size) {
@@ -17,6 +17,13 @@ export class AnalysisPool {
         worker.busy = false;
         if (error) job.reject(new Error(error)); else job.resolve(spots);
         this.next();
+      });
+      // A worker that dies (typically out of memory) would otherwise leave its frame pending forever.
+      worker.onError?.(message => {
+        const job = this.pending.get(worker.current);
+        this.pending.delete(worker.current);
+        worker.busy = false;
+        job?.reject(new Error(message));
       });
       return worker;
     });
@@ -37,6 +44,7 @@ export class AnalysisPool {
     const id = this.nextId++;
     this.pending.set(id, { resolve, reject });
     worker.busy = true;
+    worker.current = id;
     let { buffer } = frame.data;
     // A view on part of a larger buffer cannot be handed over whole, so only that part is copied.
     if (frame.data.byteOffset !== 0 || frame.data.byteLength !== buffer.byteLength) buffer = buffer.slice(frame.data.byteOffset, frame.data.byteOffset + frame.data.byteLength);
