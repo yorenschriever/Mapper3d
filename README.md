@@ -134,7 +134,10 @@ descriptor (glow rings relative to the background, because the highlight itself 
    assignment are the combination that makes the most lights agree with valid Reed-Solomon words.
 3. Per-slot color likelihoods feed a maximum-likelihood search over all indices. A decode is accepted
    when its margin over the runner-up exceeds the 99.9th percentile of margins on shuffled slots.
-4. The count is decoded from the count slots pooled over all accepted lights.
+4. The count is decoded from the count slots. Tracklet votes are grouped by decoded index, so each
+   distinct LED contributes at most one vote; a strict majority of groups with count evidence is
+   required. A single-LED result is checked against shuffled count slots. An inconclusive count is
+   reported as an error rather than used as a strip size.
 5. A color classifier is refit on the confident lights and everything is decoded again.
 
 `web/scan.js` ties it together without annotations: `web/detect.js` finds blinking lights as peaks of the
@@ -169,6 +172,8 @@ reflections. The scale is arbitrary. On `protocolv2_moving.mp4` all 20 lights ar
 roughly on the table plane. There is no ground truth, so absolute accuracy is unverified. Known limits: the
 initial pair needs enough parallax and non-flat structure, frames with few known lights are skipped, and
 the bundle adjustment's dense system over points will need a sparse version for thousands of lights.
+Camera registration is retried after focal-length refinement, which can recover frames and lights that
+could not be registered with the initial focal estimate.
 
 ### Viewer
 
@@ -203,7 +208,10 @@ limit at hundreds of lights. Not done: WASM, WebGPU, and a cheap first-pass deco
 ### Scanning in the browser
 
 `viewer.html` scans the camera or an uploaded video file with the same pipeline (`web/scan-app.js`):
-frames go to a worker pool, then `web/solve-worker.js` decodes and reconstructs off the UI thread.
+full-resolution frames go to a worker pool, then `web/solve-worker.js` decodes and reconstructs off the UI thread.
+The color sampler estimates each spot's bright-core size and scales its glow and background sampling
+areas accordingly, within bounded limits. Closely spaced or heavily overlapping lights can still
+contaminate each other's color samples, and the fixed-size colorfulness prefilter can miss large lights.
 Uploaded files are decoded sequentially with WebCodecs and the vendored MP4Box.js demuxer, without seeking
 or relying on realtime playback. File scanning requires WebCodecs and a supported codec in a non-fragmented
 MP4; unsupported browsers, formats and codecs report an error. The MP4 metadata may be read from the end of
@@ -211,7 +219,7 @@ the file before its media data is streamed. MP4Box.js is vendored in `web/vendor
 the app still runs without a build step. The live camera is analyzed at 30 fps
 while its preview stays at the camera's rate, and exposure compensation is offered where the browser supports it
 (Chrome on Android). While recording, white balance and exposure are frozen at the values the camera had
-at the start, where the browser allows manual modes (otherwise they stay automatic). On `protocolv2_moving2.mp4` this finds 20 of 20 lights (median reprojection 1.0 px). The camera path
+at the start, where the browser allows manual modes (otherwise they stay automatic). The camera path
 has not been tried on a real device.
 
 ## Optical protocol v1

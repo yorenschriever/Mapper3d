@@ -300,6 +300,47 @@ export function decodeCount(allLikelihoods) {
   return { count: value, margin: best - second };
 }
 
+/** Count votes are grouped by decoded index so fragments of one LED cannot dominate. */
+export function consensusCount(likelihoods, results) {
+  const groups = new Map();
+  for (let i = 0; i < likelihoods.length; i++) {
+    const { accepted, index } = results[i];
+    if (!accepted) continue;
+    const vote = decodeCount([likelihoods[i]]);
+    if (!(vote.margin > 0) || vote.count <= index) continue;
+    if (!groups.has(index)) groups.set(index, []);
+    groups.get(index).push({ ...vote, likelihoods: likelihoods[i] });
+  }
+  const votes = new Map();
+  for (const group of groups.values()) {
+    const counts = new Map();
+    for (const vote of group) counts.set(vote.count, (counts.get(vote.count) ?? 0) + 1);
+    const ranked = [...counts].sort((a, b) => b[1] - a[1]);
+    if (ranked.length > 1 && ranked[0][1] === ranked[1][1]) continue;
+    const count = ranked[0][0];
+    votes.set(count, (votes.get(count) ?? 0) + 1);
+  }
+  const winner = [...votes].sort((a, b) => b[1] - a[1])[0];
+  if (!winner || winner[1] <= groups.size / 2) return { count: null, support: winner?.[1] ?? 0, groups: groups.size };
+  if (groups.size >= 2) return { count: winner[0], support: winner[1], groups: groups.size };
+
+  // A one-LED strip cannot provide independent indices; test its count against shuffled slots.
+  if (winner[0] === 1 && groups.has(0)) {
+    const vote = groups.get(0).filter(v => v.count === 1).sort((a, b) => b.margin - a.margin)[0];
+    const random = mulberry(7), margins = [];
+    for (let n = 0; n < 32; n++) {
+      const slots = vote.likelihoods.slice(20);
+      for (let i = slots.length - 1; i > 0; i--) {
+        const j = Math.floor(random() * (i + 1));
+        [slots[i], slots[j]] = [slots[j], slots[i]];
+      }
+      margins.push(decodeCount([[...vote.likelihoods.slice(0, 20), ...slots]]).margin);
+    }
+    if (vote.margin > Math.max(...margins)) return { count: 1, support: 1, groups: 1 };
+  }
+  return { count: null, support: winner[1], groups: groups.size };
+}
+
 /** Margin threshold above which a decode is trusted: a high quantile of margins on shuffled slots. */
 export function nullThreshold(allLikelihoods, { shuffles = 4, quantile = 0.999, seed = 7, limit = 10000 } = {}) {
   const random = mulberry(seed), margins = [];
@@ -331,7 +372,7 @@ export function decodeStationaryLights(lights, { periods = [120, 360], temperatu
   }
   const { period, folds, trusted, calibration } = best;
   let classifier = ColorClassifier.fromCenters(calibration.centers, calibration.assignment, trusted);
-  let results = [], count = 0, previous = null;
+  let results = [], count = null, previous = null;
   for (let round = 0; round <= rounds; round++) {
     const likelihoods = folds.map(f => slotLikelihoods(f, calibration.rotation, classifier, temperature));
     const threshold = nullThreshold(likelihoods);
@@ -339,8 +380,8 @@ export function decodeStationaryLights(lights, { periods = [120, 360], temperatu
       const { value, margin } = decodeIndex(l);
       return { index: value, margin, accepted: margin > threshold };
     });
-    count = decodeCount(likelihoods.filter((_, i) => results[i].accepted)).count;
-    results.forEach(r => { r.accepted = r.accepted && r.index < count; });
+    count = consensusCount(likelihoods, results).count;
+    if (count !== null) results.forEach(r => { r.accepted = r.accepted && r.index < count; });
     // Stop once refitting no longer changes which lights decode to what.
     const signature = results.map(r => (r.accepted ? r.index : -1)).join(",");
     if (round === rounds || signature === previous) break;

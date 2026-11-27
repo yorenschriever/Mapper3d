@@ -237,8 +237,20 @@ export function reconstruct(frames, { width, height, focal = 0.66 * width, log =
     const changed = reselect();
     rms = adjust(15, true);
     log(`reselect ${changed}, rms ${rms.toFixed(2)}px, focal ${f.toFixed(0)}`);
-    onProgress(0.9 + 0.05 * (i + 1));
+    onProgress(0.8 + 0.05 * (i + 1));
   }
+  // Focal refinement can make previously rejected camera poses registerable.
+  for (let round = 0; round < 8; round++) {
+    const distance = k => Math.min(...[...cameras.keys()].map(c => Math.abs(c - k)));
+    const pending = frames.map((_, k) => k).filter(k => !cameras.has(k)).sort((a, b) => distance(a) - distance(b));
+    const added = sweep(pending);
+    log(`refined focal round ${round}: +${added} cameras, ${cameras.size}/${frames.length}, ${points.size} points`);
+    if (!added) break;
+    rms = adjust(15, true);
+    if (reselect()) rms = adjust(15, true);
+    onProgress(0.9 + 0.09 * cameras.size / frames.length);
+  }
+  onProgress(1);
   return {
     points,
     cameras: [...cameras].map(([k, c]) => ({ frame: k, time: frames[k].time, ...c })).sort((a, b) => a.time - b.time),

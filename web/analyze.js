@@ -1,10 +1,9 @@
-import { colorFeatures } from "./stationary.js";
+import { colorFeatures, colorSamplingScale } from "./stationary.js";
 
 /**
  * Per-frame analysis: finds small high-contrast spots (the lights are always lit, whatever their
- * color) on a half-resolution copy, refines them at full resolution, and computes a color
- * descriptor for the spots that look colorful. This is the expensive, per-frame-independent part
- * of a scan, so it is what the worker pool runs.
+ * color) on a half-resolution copy, refines them at input resolution, and computes a color
+ * descriptor for the spots that look colorful. This per-frame work runs in the worker pool.
  */
 const level = (d, i) => d[i] + d[i + 1] + d[i + 2] + 3 * Math.min(d[i], d[i + 1], d[i + 2]);
 
@@ -30,7 +29,7 @@ function blur(source, width, height, radius) {
   return out;
 }
 
-/** Local maxima of brightness contrast on the half-resolution image, in full-resolution coordinates. */
+/** Local maxima of brightness contrast on the half-resolution image, in input-image coordinates. */
 export function detectSpots(image, { minContrast = 60, maxSpots = 200, separation = 7 } = {}) {
   const { width, height, data } = image, w = width >> 1, h = height >> 1;
   const half = new Float32Array(w * h);
@@ -56,7 +55,7 @@ export function detectSpots(image, { minContrast = 60, maxSpots = 200, separatio
     if (kept.length >= maxSpots) break;
     if (!kept.some(s => Math.abs(s.x - candidate.x) < separation && Math.abs(s.y - candidate.y) < separation)) kept.push(candidate);
   }
-  // Refine at full resolution to the centroid of the pixels near the peak; saturated lights have a
+  // Refine at input resolution to the centroid of the pixels near the peak; saturated lights have a
   // flat top, where a single brightest pixel would be arbitrary.
   return kept.map(({ x, y, contrast }) => {
     const x0 = Math.max(0, 2 * x - 4), x1 = Math.min(width - 1, 2 * x + 5), y0 = Math.max(0, 2 * y - 4), y1 = Math.min(height - 1, 2 * y + 5);
@@ -107,8 +106,11 @@ export function glowColorfulness(image, cx, cy) {
 
 /** Detects spots and describes the colorful ones: [{x, y, contrast, features | null}]. */
 export function analyzeFrame(image, { minColorfulness = 0.08, ...options } = {}) {
-  return detectSpots(image, options).map(spot => ({
-    ...spot,
-    features: glowColorfulness(image, spot.x, spot.y) >= minColorfulness ? colorFeatures(image, spot) : null,
-  }));
+  return detectSpots(image, options).map(spot => {
+    const scale = colorSamplingScale(image, spot);
+    return {
+      ...spot,
+      features: glowColorfulness(image, spot.x, spot.y) >= minColorfulness ? colorFeatures(image, spot, scale) : null,
+    };
+  });
 }

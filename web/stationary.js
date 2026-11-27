@@ -1,5 +1,6 @@
 const RADIUS = 15;
 const SIZE = 2 * RADIUS + 1;
+const DIRECTIONS = Array.from({ length: 16 }, (_, i) => [Math.cos(i * Math.PI / 8), Math.sin(i * Math.PI / 8)]);
 export const FEATURE_COUNT = 10;
 
 function median(values) {
@@ -12,20 +13,63 @@ function normalized(vector) {
   return vector.map(value => value / length);
 }
 
-function readPatch(image, point) {
+/** Estimate the bright core's radius from its radial profile, ignoring isolated nearby lights. */
+export function colorSamplingScale(image, point) {
+  const { width, height, data } = image;
+  const cx = Math.round(point.x), cy = Math.round(point.y);
+  const value = (x, y) => {
+    x = Math.round(x); y = Math.round(y);
+    if (x < 0 || y < 0 || x >= width || y >= height) return null;
+    const i = (y * width + x) * 4;
+    return Math.max(data[i], data[i + 1], data[i + 2]);
+  };
+  let peak = 0;
+  for (let y = -1; y <= 1; y++) for (let x = -1; x <= 1; x++) peak = Math.max(peak, value(cx + x, cy + y) ?? 0);
+  const samples = radius => {
+    const values = [];
+    for (const [dx, dy] of DIRECTIONS) {
+      const v = value(cx + radius * dx, cy + radius * dy);
+      if (v !== null) values.push(v);
+    }
+    return values;
+  };
+  const background = median(samples(24));
+  if (peak - background < 20) return 1;
+  const threshold = background + 0.6 * (peak - background);
+  let radius = 0;
+  for (let r = 1; r <= 24; r++) {
+    const values = samples(r);
+    if (values.length < 8 || median(values) < threshold) break;
+    radius = r;
+  }
+  return Math.max(1, Math.min(4, radius / 4));
+}
+
+function readPatch(image, point, scale) {
   const cx = Math.round(point.x), cy = Math.round(point.y);
   const rgb = new Uint8Array(SIZE * SIZE * 3);
   const valid = new Uint8Array(SIZE * SIZE);
   for (let y = 0; y < SIZE; y++) {
-    const sy = cy - RADIUS + y;
-    if (sy < 0 || sy >= image.height) continue;
+    const sy = cy + (y - RADIUS) * scale, y0 = Math.floor(sy);
+    if (sy < 0 || sy > image.height - 1) continue;
     for (let x = 0; x < SIZE; x++) {
-      const sx = cx - RADIUS + x;
-      if (sx < 0 || sx >= image.width) continue;
-      const source = (sy * image.width + sx) * 4, target = y * SIZE + x;
-      rgb[target * 3] = image.data[source];
-      rgb[target * 3 + 1] = image.data[source + 1];
-      rgb[target * 3 + 2] = image.data[source + 2];
+      const sx = cx + (x - RADIUS) * scale, x0 = Math.floor(sx);
+      if (sx < 0 || sx > image.width - 1) continue;
+      const target = y * SIZE + x;
+      if (scale === 1) {
+        const source = (y0 * image.width + x0) * 4;
+        rgb[target * 3] = image.data[source];
+        rgb[target * 3 + 1] = image.data[source + 1];
+        rgb[target * 3 + 2] = image.data[source + 2];
+      } else {
+        const x1 = Math.min(x0 + 1, image.width - 1), y1 = Math.min(y0 + 1, image.height - 1);
+        const fx = sx - x0, fy = sy - y0;
+        for (let c = 0; c < 3; c++) {
+          const top = image.data[(y0 * image.width + x0) * 4 + c] * (1 - fx) + image.data[(y0 * image.width + x1) * 4 + c] * fx;
+          const bottom = image.data[(y1 * image.width + x0) * 4 + c] * (1 - fx) + image.data[(y1 * image.width + x1) * 4 + c] * fx;
+          rgb[target * 3 + c] = top * (1 - fy) + bottom * fy;
+        }
+      }
       valid[target] = 1;
     }
   }
@@ -88,8 +132,8 @@ function ring({ rgb, valid }, geometry, from, to, background, skipClipped) {
  * often clipped to white, so most of the information comes from the glow in rings around
  * it, relative to the local background, plus the hue of the brightest pixels.
  */
-export function colorFeatures(image, point) {
-  const patch = readPatch(image, point);
+export function colorFeatures(image, point, scale = colorSamplingScale(image, point)) {
+  const patch = readPatch(image, point, scale);
   const geometry = highlight(patch);
   const { rgb, valid } = patch;
   const pixels = [];

@@ -30,6 +30,9 @@ export async function scanStationary(openFrames, options = {}) {
     candidates.forEach((c, k) => samples[k].push({ time: frame.time, features: colorFeatures(frame, c) }));
   }
   const result = decodeStationaryLights(samples, options);
+  if (result.count === null && result.lights.some(light => light.accepted)) {
+    throw new Error("Cannot reliably determine the LED count. Film more lights for longer with their colors clearly visible.");
+  }
 
   const best = new Map();
   result.lights.forEach((light, k) => {
@@ -44,7 +47,7 @@ export async function scanStationary(openFrames, options = {}) {
 }
 
 /** Bump when frame analysis, tracking or descriptors change, so that cached tracks are not reused. */
-export const PIPELINE_VERSION = 4;
+export const PIPELINE_VERSION = 5;
 
 /** Maps `source` through async `fn` with up to `limit` calls in flight, yielding results in order. */
 export async function* orderedMap(source, fn, limit) {
@@ -133,6 +136,9 @@ export function decodeTracks(tracks, options = {}) {
       const retry = run(all, repeating.map(t => all.indexOf(t)));
       if (retry.accepted > best.accepted) best = retry;
     }
+  }
+  if (best.result.count === null && best.accepted) {
+    throw new Error("Cannot reliably determine the LED count. Film more lights for longer with their colors clearly visible.");
   }
   return {
     count: best.result.count,
