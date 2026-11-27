@@ -7,6 +7,7 @@ import { once } from "node:events";
 import { nodePool } from "../scripts/node-pool.js";
 import { scanMoving, scanStationary } from "../web/scan.js";
 import { framesFromTracks, reconstruct } from "../web/reconstruct.js";
+import { MAX_BUNDLE_POINTS } from "../web/config.js";
 
 const video = fileURLToPath(new URL("./test_data/protocolv2.mp4", import.meta.url));
 const annotationFile = fileURLToPath(new URL("./test_data/protocolv2.leds.json", import.meta.url));
@@ -88,6 +89,28 @@ test("decodes all 20 lights of a recording with a moving camera and reconstructs
     const deviation = Math.sqrt(spacing.reduce((s, v) => s + (v - mean) ** 2, 0) / spacing.length);
     assert.ok(deviation / mean < 0.35, `neighbor spacing varies by ${(deviation / mean).toFixed(2)}`);
   });
+
+test("reconstructs lights outside the bundle-adjustment subset", { timeout: 120000 }, () => {
+  const width = 1280, height = 720, focal = 0.66 * width;
+  const points = Array.from({ length: 121 }, (_, i) => [
+    (i % 11 - 5) * 0.15,
+    (Math.floor(i / 11) - 5) * 0.12,
+    3 + ((i * 17) % 31) / 20,
+  ]);
+  const frames = Array.from({ length: 24 }, (_, k) => {
+    const observations = new Map(points.map(([x, y, z], id) => [id, [{
+      x: width / 2 + focal * (x - k * 0.025) / z,
+      y: height / 2 + focal * (y - k * 0.004) / z,
+      margin: 10,
+    }]]));
+    return { time: k * 100, observations };
+  });
+  const logs = [];
+  const model = reconstruct(frames, { width, height, focal, log: message => logs.push(message) });
+  assert.ok(logs.includes(`bundle adjustment: ${Math.min(MAX_BUNDLE_POINTS, points.length)} selected lights`));
+  assert.equal(model.points.size, points.length);
+  assert.ok(model.medianError < 1, `median reprojection error ${model.medianError}`);
+});
 
 const denseVideo = fileURLToPath(new URL("./test_data/20261127_182023.mp4", import.meta.url));
 

@@ -1,4 +1,5 @@
 import { bundleAdjust, initialPose, reprojection, refineCamera, rotFromVec, triangulate, vecFromRot } from "./sfm.js";
+import { MAX_BUNDLE_POINTS } from "./config.js";
 
 function seededRandom(seed) {
   return () => {
@@ -8,6 +9,33 @@ function seededRandom(seed) {
 }
 
 const IDENTITY = [1, 0, 0, 0, 1, 0, 0, 0, 1];
+function selectBundlePoints(frames, width, height) {
+  const cellsById = new Map();
+  frames.forEach((frame, k) => {
+    for (const [id, observation] of frame) {
+      const x = Math.max(0, Math.min(3, Math.floor(4 * observation.x / width)));
+      const y = Math.max(0, Math.min(3, Math.floor(4 * observation.y / height)));
+      if (!cellsById.has(id)) cellsById.set(id, []);
+      cellsById.get(id).push(k * 16 + y * 4 + x);
+    }
+  });
+  if (cellsById.size <= MAX_BUNDLE_POINTS) return new Set(cellsById.keys());
+
+  // Favor lights that cover underrepresented image regions and viewpoints.
+  const coverage = new Map(), selected = new Set();
+  while (selected.size < MAX_BUNDLE_POINTS) {
+    let bestId, bestScore = -1;
+    for (const [id, cells] of cellsById) {
+      if (selected.has(id)) continue;
+      let score = 0;
+      for (const cell of cells) score += 1 / (1 + (coverage.get(cell) ?? 0));
+      if (score > bestScore) { bestId = id; bestScore = score; }
+    }
+    selected.add(bestId);
+    for (const cell of cellsById.get(bestId)) coverage.set(cell, (coverage.get(cell) ?? 0) + 1);
+  }
+  return selected;
+}
 
 /**
  * Groups decoded tracklets into frames: frames[k] = {time, observations: Map(index -> [{x, y, margin}])}.
@@ -36,7 +64,10 @@ export function framesFromTracks(tracks, step = 4) {
  */
 export function reconstruct(frames, { width, height, focal = 0.66 * width, log = () => {}, onProgress = () => {}, onStage = () => {}, random = seededRandom(1) } = {}) {
   const cx = width / 2, cy = height / 2;
-  const chosen = frames.map(f => new Map([...f.observations].map(([id, list]) => [id, list.reduce((a, b) => (b.margin > a.margin ? b : a))])));
+  const allChosen = frames.map(f => new Map([...f.observations].map(([id, list]) => [id, list.reduce((a, b) => (b.margin > a.margin ? b : a))])));
+  const bundleIds = selectBundlePoints(allChosen, width, height);
+  const chosen = allChosen.map(frame => new Map([...frame].filter(([id]) => bundleIds.has(id))));
+  log(`bundle adjustment: ${bundleIds.size} selected lights`);
 
   onStage("Finding a starting viewpoint");
   // Initial pair: many shared lights, a visible disparity, and a pose that explains the points well.
@@ -121,8 +152,8 @@ export function reconstruct(frames, { width, height, focal = 0.66 * width, log =
     }
     return bestViews;
   };
-  const triangulateNew = () => {
-    const ids = new Set(frames.flatMap((_, k) => cameras.has(k) ? [...chosen[k].keys()] : []));
+  const triangulateNew = (observations = chosen) => {
+    const ids = new Set(frames.flatMap((_, k) => cameras.has(k) ? [...observations[k].keys()] : []));
     for (const id of ids) {
       if (points.has(id)) continue;
       const views = consistentViews(id);
@@ -158,7 +189,7 @@ export function reconstruct(frames, { width, height, focal = 0.66 * width, log =
     return result.rms;
   };
   // Re-pick, per frame and light, the candidate that best agrees with the current model.
-  const reselect = () => {
+  const reselect = (observations = chosen) => {
     let changed = 0;
     frames.forEach((frame, k) => {
       const camera = cameras.get(k);
@@ -167,20 +198,20 @@ export function reconstruct(frames, { width, height, focal = 0.66 * width, log =
         const X = points.get(id);
         if (!X || list.length < 2) continue;
         const best = list.reduce((a, b) => reprojection(camera, f, cx, cy, X, b).error < reprojection(camera, f, cx, cy, X, a).error ? b : a);
-        if (best !== chosen[k].get(id)) { chosen[k].set(id, best); changed++; }
+        if (best !== observations[k].get(id)) { observations[k].set(id, best); changed++; }
       }
     });
     return changed;
   };
 
   // The rms is dominated by the few wrong candidates that remain; the median shows the typical accuracy.
-  const medianError = () => {
+  const errors = () => {
     const errors = [];
     for (const [k, camera] of cameras) {
-      for (const [id, o] of chosen[k]) if (points.has(id)) errors.push(reprojection(camera, f, cx, cy, points.get(id), o).error);
+      for (const [id, o] of allChosen[k]) if (points.has(id)) errors.push(reprojection(camera, f, cx, cy, points.get(id), o).error);
     }
     errors.sort((a, b) => a - b);
-    return errors.length ? errors[errors.length >> 1] : 0;
+    return errors;
   };
 
   triangulateNew();
@@ -255,14 +286,17 @@ export function reconstruct(frames, { width, height, focal = 0.66 * width, log =
     onProgress(0.9 + 0.09 * cameras.size / frames.length);
   }
   onStage("Finalizing the model");
+  triangulateNew(allChosen);
+  reselect(allChosen);
+  const finalErrors = errors();
   onProgress(1);
   return {
     points,
     cameras: [...cameras].map(([k, c]) => ({ frame: k, time: frames[k].time, ...c })).sort((a, b) => a.time - b.time),
     focal: f,
-    rms,
-    medianError: medianError(),
-    observations: [...chosen].reduce((n, m) => n + [...m.keys()].filter(id => points.has(id)).length, 0),
+    rms: finalErrors.length ? Math.sqrt(finalErrors.reduce((sum, e) => sum + (Number.isFinite(e) ? e : 1000) ** 2, 0) / finalErrors.length) : rms,
+    medianError: finalErrors.length ? finalErrors[finalErrors.length >> 1] : 0,
+    observations: [...allChosen].reduce((n, m) => n + [...m.keys()].filter(id => points.has(id)).length, 0),
   };
 }
 

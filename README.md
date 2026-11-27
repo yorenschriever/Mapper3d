@@ -80,6 +80,11 @@ memory use and false candidates. Closely spaced or overlapping lights can
 contaminate each other's color samples. Reconstruction needs enough parallax
 and non-flat structure; frames with too few known lights may be skipped.
 Camera drift, reflections and imperfect detections can distort positions.
+Reconstruction refines the cameras using at most `MAX_BUNDLE_POINTS`
+spatially and temporally distributed lights (50 by default, configurable in
+`web/config.js`), then triangulates the remaining decoded lights with those
+cameras. This limits processing cost but errors in the selected lights can
+affect the whole model.
 
 For a dense 500-light recording, try `SPOT_SEPARATION = 4`,
 `MAX_SPOTS_PER_FRAME = 1000`, and `MAX_RETAINED_TRACKS = 1500` in

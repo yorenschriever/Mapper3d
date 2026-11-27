@@ -30,6 +30,6 @@ export function alignModel(lights, centers) {
 export function project3d(p, { yaw, pitch, scale, cx, cy }) {
   const cosY = Math.cos(yaw), sinY = Math.sin(yaw), cosP = Math.cos(pitch), sinP = Math.sin(pitch);
   const x = p[0] * cosY - p[1] * sinY, y = p[0] * sinY + p[1] * cosY, z = p[2];
-  const depth = y * cosP + z * sinP, up = z * cosP - y * sinP;
+  const depth = y * cosP - z * sinP, up = z * cosP + y * sinP;
   return { x: cx + x * scale, y: cy - up * scale, depth, perspective: 1 };
 }

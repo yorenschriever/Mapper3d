@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { alignModel, cameraCenters } from "../web/view-math.js";
+import { alignModel, cameraCenters, project3d } from "../web/view-math.js";
 
 test("aligning a tilted flat string makes it level with the cameras above", () => {
   const lights = [];
@@ -18,4 +18,16 @@ test("aligning a tilted flat string makes it level with the cameras above", () =
 test("camera centers invert the pose", () => {
   const [c] = cameraCenters([{ r: [0, 0, Math.PI / 2], t: [1, 2, 3] }]);
   assert.deepEqual(c.map(v => +v.toFixed(6)), [-2, 1, -3]);
+});
+
+test("positive pitch views a level model from above with the correct handedness", () => {
+  const options = { yaw: 0, pitch: Math.PI / 4, scale: 1, cx: 0, cy: 0 };
+  const origin = project3d([0, 0, 0], options);
+  const right = project3d([1, 0, 0], options);
+  const forward = project3d([0, 1, 0], options);
+  const above = project3d([0, 0, 1], options);
+  assert.ok(right.x > origin.x);
+  assert.ok(forward.y < origin.y);
+  assert.ok(above.y < origin.y);
+  assert.ok(above.depth < origin.depth);
 });
