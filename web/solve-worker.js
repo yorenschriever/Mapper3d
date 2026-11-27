@@ -5,6 +5,7 @@ import { framesFromTracks, modelToJson, reconstruct } from "./reconstruct.js";
 self.onmessage = ({ data: { tracks, width, height, periods } }) => {
   try {
     self.postMessage({ progress: 0.02 });
+    self.postMessage({ status: "Decoding light patterns" });
     self.postMessage({ stage: `decoding ${tracks.length} tracks` });
     const scan = decodeTracks(tracks, { periods });
     self.postMessage({ stage: `reconstructing from ${scan.tracks.length} decoded tracks` });
@@ -14,6 +15,7 @@ self.onmessage = ({ data: { tracks, width, height, periods } }) => {
       width, height,
       log: message => self.postMessage({ log: message }),
       onProgress: fraction => self.postMessage({ progress: 0.2 + 0.8 * fraction }),
+      onStage: status => self.postMessage({ status }),
     });
     self.postMessage({ model: modelToJson(model, { count: scan.count, width, height }) });
   } catch (error) {

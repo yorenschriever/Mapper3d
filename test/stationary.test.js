@@ -132,8 +132,16 @@ test("recovers the phone recording's count and reconstructs lights across the fo
     }
     assert.equal(result.count, 20);
     assert.deepEqual([...new Set(result.tracks.map(t => t.index))].sort((a, b) => a - b), Array.from({ length: 20 }, (_, i) => i));
-    const model = reconstruct(framesFromTracks(result.tracks, 4), { width: 1080, height: 1920 });
+    const stages = [];
+    const model = reconstruct(framesFromTracks(result.tracks, 4), { width: 1080, height: 1920, onStage: stage => stages.push(stage) });
     assert.equal(model.points.size, 20);
     assert.ok(model.cameras.some(c => c.time < 10000), "registers early frames");
     assert.ok(model.cameras.some(c => c.time > 28000), "registers late frames");
+    assert.deepEqual(stages, [
+      "Finding a starting viewpoint",
+      "Registering camera viewpoints",
+      "Refining camera and light positions",
+      "Registering remaining viewpoints",
+      "Finalizing the model",
+    ]);
   });

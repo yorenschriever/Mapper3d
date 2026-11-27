@@ -4,6 +4,7 @@ import { describePreviousCrash } from "../diagnostics.js";
 import { CameraScreen } from "./camera-screen.js";
 import { ModelScreen } from "./model-screen.js";
 import { ProcessingScreen } from "./processing-screen.js";
+import { ErrorNotice } from "./error-notice.js";
 
 /** Holds the replay canvas of a file scan until the camera screen has a place for it. */
 function previewHolder() {
@@ -22,7 +23,7 @@ function App() {
   const running = useRef(null), wakeLock = useRef(null);   // {stop, cancel}: controllers of the running scan
 
   // A page killed during a scan (usually out of memory) leaves a trace behind.
-  useEffect(() => { const crash = describePreviousCrash(); if (crash) setError(crash); }, []);
+  useEffect(() => { const crash = describePreviousCrash(); if (crash) setError({ message: crash, details: crash }); }, []);
 
   // ?model=<url> opens a finished model directly (for development).
   useEffect(() => {
@@ -49,7 +50,11 @@ function App() {
       setModel(result);
       setScreen("model");
     } catch (e) {
-      if (!mine.cancel.signal.aborted) { console.error(e.details ?? e); setError(e.details ?? e.message); setScreen("camera"); }
+      if (!mine.cancel.signal.aborted) {
+        console.error(e.details ?? e);
+        setError({ name: e.name, message: e.message, details: e.details ?? e.stack ?? String(e) });
+        setScreen("camera");
+      }
     } finally {
       if (running.current === mine) { running.current = null; setJob(null); }
       wakeLock.current?.release?.().catch(() => {});
@@ -69,10 +74,11 @@ function App() {
   return html`
     <${Screen} screen=${screen}>
       ${screen === "camera" && html`<${CameraScreen} job=${job} onRecord=${stream => run({ stream }, "live")} onStop=${stop}
-        onFile=${file => run({ file }, "file")} onCancel=${cancel} />`}
-      ${screen === "processing" && html`<${ProcessingScreen} fraction=${job?.progress?.phase === "solve" ? job.progress.fraction : undefined} onCancel=${cancel} />`}
+        onFile=${file => run({ file }, "file")} onCancel=${cancel} onCameraError=${e => setError(current => current ?? e)} />`}
+      ${screen === "processing" && html`<${ProcessingScreen} status=${job?.progress?.status}
+        fraction=${job?.progress?.phase === "solve" ? job.progress.fraction : undefined} onCancel=${cancel} />`}
       ${screen === "model" && html`<${ModelScreen} model=${model} onBack=${() => { setModel(null); setScreen("camera"); }} />`}
-      ${error && html`<div class="toast" role="alert" onClick=${() => setError(null)}>${error}</div>`}
+      ${error && html`<${ErrorNotice} error=${error} onDismiss=${() => setError(null)} />`}
     <//>`;
 }
 

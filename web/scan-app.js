@@ -25,9 +25,11 @@ function spawnAnalyzer() {
 function solve(tracks, { width, height }, onProgress, cancel) {
   return new Promise((resolve, reject) => {
     const worker = new Worker(new URL("./solve-worker.js", import.meta.url), { type: "module" });
+    let status, fraction = 0;
     cancel?.addEventListener("abort", () => { worker.terminate(); reject(new Error("Cancelled")); });
     worker.onmessage = ({ data }) => {
-      if (data.progress !== undefined) { trace.update({ solve: Math.round(data.progress * 100) }); return onProgress(data.progress); }
+      if (data.progress !== undefined) { fraction = data.progress; trace.update({ solve: Math.round(fraction * 100) }); return onProgress({ fraction, status }); }
+      if (data.status) { status = data.status; return onProgress({ fraction, status }); }
       if (data.stage) return trace.update({ stage: data.stage });
       if (data.log) return;
       worker.terminate();
@@ -112,5 +114,5 @@ async function scanSource({ file, stream }, { signal, cancel, onProgress = () =>
   if (file && !tracks.length) throw new Error(`No lights could be decoded (${analyzed} frames analysed, ${duration.toFixed(1)} s video, ${width}x${height}). Film the whole string for longer, in a darker room.`);
   trace.update({ phase: "solve", solve: 0, stage: undefined, tracks: tracks.length, samples: tracks.reduce((sum, t) => sum + t.samples.length, 0) });
   onProgress({ phase: "solve", fraction: 0 });
-  return solve(tracks, { width, height }, fraction => onProgress({ phase: "solve", fraction }), cancel);
+  return solve(tracks, { width, height }, progress => onProgress({ phase: "solve", ...progress }), cancel);
 }

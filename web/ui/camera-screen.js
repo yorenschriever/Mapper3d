@@ -18,7 +18,7 @@ function useCamera(enabled) {
         stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment", width: 1280, height: 720, frameRate: 60 }, audio: false });
         if (cancelled) stream.getTracks().forEach(t => t.stop()); else setState({ stream, error: null });
       } catch (error) {
-        if (!cancelled) setState({ stream: null, error: error.name === "NotAllowedError" ? "Camera access was denied. Allow it in the browser settings, or upload a video from the menu." : error.message });
+        if (!cancelled) setState({ stream: null, error: { name: error.name, message: error.message, details: error.stack ?? String(error) } });
       }
     })();
     return () => { cancelled = true; stream?.getTracks().forEach(t => t.stop()); };
@@ -63,7 +63,7 @@ function useExposure(stream) {
  * Fullscreen camera with a record button. While a file is analyzed instead, the replay of the video
  * takes the place of the camera (`replay` is the element the scan puts the video in).
  */
-export function CameraScreen({ job, onRecord, onStop, onFile, onCancel }) {
+export function CameraScreen({ job, onRecord, onStop, onFile, onCancel, onCameraError }) {
   const replaying = job?.kind === "file";
   const { stream, error } = useCamera(!replaying);
   const exposure = useExposure(stream);
@@ -72,6 +72,7 @@ export function CameraScreen({ job, onRecord, onStop, onFile, onCancel }) {
   const recording = job?.kind === "live";
 
   useEffect(() => { if (video.current) video.current.srcObject = stream; }, [stream]);
+  useEffect(() => { if (error) onCameraError(error); }, [error]);
   useEffect(() => {
     if (!recording) { setElapsed(0); return; }
     const timer = setInterval(() => setElapsed((performance.now() - job.startedAt) / 1000), 250);
@@ -90,8 +91,6 @@ export function CameraScreen({ job, onRecord, onStop, onFile, onCancel }) {
       ${replaying
         ? html`<div class="replay" ref=${replay}></div>`
         : html`<video ref=${video} autoplay muted playsinline></video>`}
-      ${error && !replaying && html`<div class="camera-message">${error}</div>`}
-
       <div class="top-bar">
         <div class="timer ${recording ? "visible" : ""}"><span class="dot"></span>${clock(elapsed)}</div>
         ${!job && html`

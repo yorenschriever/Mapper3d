@@ -34,10 +34,11 @@ export function framesFromTracks(tracks, step = 4) {
  * Returns { points: Map(index -> [x, y, z]), cameras: [{frame, time, r, t}], focal, rms, observations }.
  * The scale is arbitrary and the focal length (pixels) is estimated; `focal` is only the starting guess.
  */
-export function reconstruct(frames, { width, height, focal = 0.66 * width, log = () => {}, onProgress = () => {}, random = seededRandom(1) } = {}) {
+export function reconstruct(frames, { width, height, focal = 0.66 * width, log = () => {}, onProgress = () => {}, onStage = () => {}, random = seededRandom(1) } = {}) {
   const cx = width / 2, cy = height / 2;
   const chosen = frames.map(f => new Map([...f.observations].map(([id, list]) => [id, list.reduce((a, b) => (b.margin > a.margin ? b : a))])));
 
+  onStage("Finding a starting viewpoint");
   // Initial pair: many shared lights, a visible disparity, and a pose that explains the points well.
   // Pure rotation and flat scenes give inconsistent poses, which the reprojection check rejects.
   // If nothing passes the strict limits, retry with progressively looser ones.
@@ -221,6 +222,7 @@ export function reconstruct(frames, { width, height, focal = 0.66 * width, log =
     }
     return added;
   };
+  onStage("Registering camera viewpoints");
   for (let round = 0; round < 8; round++) {
     const distance = k => Math.min(...[...cameras.keys()].map(c => Math.abs(c - k)));
     const pending = frames.map((_, k) => k).filter(k => !cameras.has(k)).sort((a, b) => distance(a) - distance(b));
@@ -232,6 +234,7 @@ export function reconstruct(frames, { width, height, focal = 0.66 * width, log =
     if (cameras.size === before) break;
     adjust(8);
   }
+  onStage("Refining camera and light positions");
   let rms = adjust(20, true);
   for (let i = 0; i < 2; i++) {
     const changed = reselect();
@@ -240,6 +243,7 @@ export function reconstruct(frames, { width, height, focal = 0.66 * width, log =
     onProgress(0.8 + 0.05 * (i + 1));
   }
   // Focal refinement can make previously rejected camera poses registerable.
+  onStage("Registering remaining viewpoints");
   for (let round = 0; round < 8; round++) {
     const distance = k => Math.min(...[...cameras.keys()].map(c => Math.abs(c - k)));
     const pending = frames.map((_, k) => k).filter(k => !cameras.has(k)).sort((a, b) => distance(a) - distance(b));
@@ -250,6 +254,7 @@ export function reconstruct(frames, { width, height, focal = 0.66 * width, log =
     if (reselect()) rms = adjust(15, true);
     onProgress(0.9 + 0.09 * cameras.size / frames.length);
   }
+  onStage("Finalizing the model");
   onProgress(1);
   return {
     points,

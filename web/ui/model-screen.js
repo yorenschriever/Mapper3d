@@ -5,7 +5,7 @@ import { BackIcon, DownloadIcon, KebabMenu } from "./widgets.js";
 
 export function ModelScreen({ model: raw, onBack }) {
   const canvas = useRef(null), view = useRef(null);
-  const [options, setOptions] = useState({ lines: true, labels: true, cameras: true });
+  const [options, setOptions] = useState({ lines: true, labels: true, cameras: false });
   const model = useMemo(() => prepareModel(raw), [raw]);
 
   useEffect(() => {

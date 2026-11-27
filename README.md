@@ -184,11 +184,16 @@ screens are in `web/ui/`):
 
 1. **Camera**: a fullscreen preview with a record button. Tap it to start scanning and again to stop. The top-right
    menu has "Upload video…": the video then replays while its frames are analyzed.
-2. **Processing**: a circular progress ring while the lights are decoded and reconstructed.
-3. **Model**: drag to rotate, pinch or wheel to zoom, shift-drag or two fingers to pan, tap a light to identify it.
+2. **Processing**: a progress ring and stage while the lights are decoded and reconstructed. The percentage is
+   approximate: solving stages can take very different amounts of time.
+3. **Model**: initially viewed from the first registered camera's position and orientation; drag to orbit,
+   pinch or wheel to zoom, shift-drag or two fingers to pan, tap a light to identify it.
    The menu toggles the string, the indices and the camera path, and exports the model as JSON or as a C++ header
    (`LED_POSITIONS[LED_COUNT]` of `{x, y, z}` floats by LED index, centered, z up and scaled to the farthest light
-   at distance 1; lights that were not found are `NAN`). The string is leveled by its least-spread direction.
+   at distance 1; lights that were not found are `NAN`). The camera path is hidden by default. The string is
+   leveled by its least-spread direction.
+
+Scan errors show a short explanation, with expandable technical details that can be copied to the clipboard.
 
 `viewer.html?model=<url>` opens a finished model directly.
 
