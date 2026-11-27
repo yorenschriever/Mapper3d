@@ -194,7 +194,7 @@ screens are in `web/ui/`):
 
 ### Speed and scaling
 
-The cost of a scan is per frame, not per light (until the 200-spot cap per frame), so it grows with video length:
+The cost of a scan is per frame, not per light (until the spot cap per frame), so it grows with video length:
 roughly 1 s of video costs 1 s of single-core time. `web/analyze.js` does the per-frame work (spot detection at
 half resolution, refined at full resolution; the expensive color descriptor only for spots with a colorful glow)
 and is independent per frame, so `web/pool.js` runs it on one worker per core (`scripts/node-pool.js` for Node,
@@ -209,6 +209,9 @@ limit at hundreds of lights. Not done: WASM, WebGPU, and a cheap first-pass deco
 
 `viewer.html` scans the camera or an uploaded video file with the same pipeline (`web/scan-app.js`):
 full-resolution frames go to a worker pool, then `web/solve-worker.js` decodes and reconstructs off the UI thread.
+Edit `web/config.js` to configure the maximum spots per frame (default 500) and retained tracklets
+(default 1000) for browser and command-line scans. Higher limits can increase processing time, memory use
+and false candidates. The tracklet limit is applied after tracking and repeat filtering, not while recording.
 The color sampler estimates each spot's bright-core size and scales its glow and background sampling
 areas accordingly, within bounded limits. Closely spaced or heavily overlapping lights can still
 contaminate each other's color samples, and the fixed-size colorfulness prefilter can miss large lights.

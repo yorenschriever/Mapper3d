@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { colorFeatures, colorSamplingScale } from "../web/stationary.js";
+import { nodePool } from "../scripts/node-pool.js";
 
 function light(coreRadius, point = { x: 64, y: 64 }) {
   const width = 128, height = 128, data = new Uint8ClampedArray(width * height * 4);
@@ -45,4 +46,20 @@ test("adapts to an unclipped colored light without mistaking a nearby light for 
   assert.ok(scale > 1 && scale < 3);
   const features = colorFeatures(image, point, scale);
   assert.ok(features[0] > 0.9 && features[4] > 0.9);
+});
+
+test("worker analysis uses the configured spot limit and supports an explicit override", async () => {
+  const width = 600, height = 460, data = new Uint8ClampedArray(width * height * 4);
+  for (let row = 0; row < 20; row++) for (let col = 0; col < 26; col++) {
+    for (let y = 0; y < 7; y++) for (let x = 0; x < 7; x++) {
+      data.set([255, 50, 10, 255], ((20 + row * 22 + y) * width + 20 + col * 22 + x) * 4);
+    }
+  }
+  const pool = nodePool(1);
+  try {
+    assert.equal((await pool.analyze({ width, height, data: data.slice() })).length, 500);
+    assert.equal((await pool.analyze({ width, height, data: data.slice() }, { maxSpots: 200 })).length, 200);
+  } finally {
+    pool.terminate();
+  }
 });

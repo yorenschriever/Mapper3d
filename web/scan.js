@@ -4,6 +4,7 @@ import { decodeStationaryLights } from "./decode2.js";
 import { FRAME_SLOTS } from "./code.js";
 import { analyzeFrame } from "./analyze.js";
 import { SpotTracker } from "./track.js";
+import { MAX_RETAINED_TRACKS, MAX_SPOTS_PER_FRAME } from "./config.js";
 
 /**
  * Finds and decodes all lights in a stationary recording.
@@ -64,7 +65,7 @@ export async function* orderedMap(source, fn, limit) {
  * (for example a worker pool); up to `concurrency` frames are analyzed at once.
  * Returns the tracklets with the most colorful samples first.
  */
-export async function trackFrames(frames, { analyze = analyzeFrame, concurrency = 1, maxTracks = 600, minSamples = 30, minRepeat = MIN_REPEAT, periods = [120], onProgress } = {}) {
+export async function trackFrames(frames, { analyze = analyzeFrame, concurrency = 1, maxTracks = MAX_RETAINED_TRACKS, minSamples = 30, minRepeat = MIN_REPEAT, periods = [120], onProgress } = {}) {
   // Tracks that end before they have `minSamples` described samples can never be returned, so they are dropped as they end.
   const tracker = new SpotTracker({ minSamples });
   let n = 0;
@@ -160,7 +161,7 @@ export function decodeTracks(tracks, options = {}) {
  * decoded tracklet (an index usually has several, and reflections may add more).
  */
 export async function scanMoving(frames, { cache, cacheKey, analyze, concurrency, maxTracks, minSamples, onProgress, ...options } = {}) {
-  const key = cacheKey && `${cacheKey}:v${PIPELINE_VERSION}:${maxTracks ?? 600}:${minSamples ?? 30}`;
+  const key = cacheKey && `${cacheKey}:v${PIPELINE_VERSION}:${maxTracks ?? MAX_RETAINED_TRACKS}:${minSamples ?? 30}:${MAX_SPOTS_PER_FRAME}`;
   let tracks = key && cache ? await cache.get(key) : null;
   if (!tracks) {
     tracks = await trackFrames(typeof frames === "function" ? frames() : frames, { analyze, concurrency, maxTracks, minSamples, periods: options.periods, onProgress });

@@ -1,4 +1,5 @@
 import { colorFeatures, colorSamplingScale } from "./stationary.js";
+import { MAX_SPOTS_PER_FRAME } from "./config.js";
 
 /**
  * Per-frame analysis: finds small high-contrast spots (the lights are always lit, whatever their
@@ -30,7 +31,7 @@ function blur(source, width, height, radius) {
 }
 
 /** Local maxima of brightness contrast on the half-resolution image, in input-image coordinates. */
-export function detectSpots(image, { minContrast = 60, maxSpots = 200, separation = 7 } = {}) {
+export function detectSpots(image, { minContrast = 60, maxSpots = MAX_SPOTS_PER_FRAME, separation = 7 } = {}) {
   const { width, height, data } = image, w = width >> 1, h = height >> 1;
   const half = new Float32Array(w * h);
   for (let y = 0; y < h; y++) {
