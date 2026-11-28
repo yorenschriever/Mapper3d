@@ -31,7 +31,7 @@ test("the selected camera stays usable when optional capture preferences fail", 
   assert.equal(warn.mock.callCount(), 1);
 });
 
-test("exposure starts in manual at 3ms and preserves manual settings", async () => {
+test("exposure starts in manual at 8ms and preserves manual settings", async () => {
   const calls = [], changes = [], errors = [];
   const settings = { exposureMode: "continuous", exposureTime: 50, iso: 100, colorTemperature: 4000 };
   const track = {
@@ -47,10 +47,10 @@ test("exposure starts in manual at 3ms and preserves manual settings", async () 
   await controls.setMode("manual");
   assert.deepEqual(calls.slice(0, 3), [
     { exposureMode: "manual" },
-    { exposureMode: "manual", exposureTime: 30, iso: 100 },
-    { exposureMode: "manual", exposureTime: 30, iso: 100 },
+    { exposureMode: "manual", exposureTime: 80, iso: 100 },
+    { exposureMode: "manual", exposureTime: 80, iso: 100 },
   ]);
-  assert.equal(settings.exposureTime, 30);
+  assert.equal(settings.exposureTime, 80);
   assert.equal(changes[0].mode, "auto");
   assert.equal(changes[0].value, -5);
   assert.equal(changes.at(-1).timeRange.max, 165);
@@ -82,18 +82,93 @@ test("failure to apply minimum compensation is reported", async () => {
   assert.match(errors.at(-1).message, /exposure compensation/);
 });
 
-test("manual white balance clamps the reported color temperature to camera limits", async () => {
-  const calls = [];
+test("white balance stays at 6000 K through exposure and recording changes", async () => {
+  const calls = [], errors = [], states = [];
+  const settings = { whiteBalanceMode: "continuous", colorTemperature: 4000, exposureMode: "continuous", exposureTime: 50 };
   const track = {
     getCapabilities: () => ({
       whiteBalanceMode: ["continuous", "manual"], colorTemperature: { min: 2500, max: 6500, step: 100 },
+      exposureMode: ["continuous", "manual"], exposureTime: { min: 5, max: 150, step: 5 },
+      exposureCompensation: { min: -2, max: 2 },
     }),
-    getSettings: () => ({ colorTemperature: 9000 }),
-    async applyConstraints({ advanced: [value] }) { calls.push(value); },
+    getSettings: () => ({ ...settings }),
+    async applyConstraints({ advanced: [value] }) { calls.push(value); Object.assign(settings, value); },
   };
-  const controls = createExposureControls(track, () => {}, () => {});
+  const controls = createExposureControls(track, state => states.push(state), error => errors.push(error));
+  await controls.setMode("auto");
+  await controls.setMode("manual");
   await controls.lock();
-  assert.deepEqual(calls, [{ whiteBalanceMode: "manual", colorTemperature: 6500 }]);
+  await controls.unlock();
+  assert.ok(calls.length > 4);
+  assert.ok(calls.every(call => call.whiteBalanceMode === "manual" && call.colorTemperature === 6000));
+  assert.equal(settings.colorTemperature, 6000);
+  assert.equal(states.at(-1).whiteBalanceWarning, null);
+  assert.deepEqual(errors, []);
+});
+
+test("unavailable or ignored 6000 K white balance is reported", async t => {
+  t.mock.method(console, "warn", () => {});
+  for (const [capabilities, applyConstraints] of [
+    [{ whiteBalanceMode: ["continuous"] }, async () => {}],
+    [{ whiteBalanceMode: ["manual"], colorTemperature: { min: 2500, max: 5500, step: 100 } }, async () => {}],
+    [{ whiteBalanceMode: ["manual"], colorTemperature: { min: 2500, max: 6500, step: 300 } }, async () => {}],
+    [{ whiteBalanceMode: ["manual"], colorTemperature: { min: 2500, max: 6500, step: 100 } }, async () => {}],
+    [{ whiteBalanceMode: ["manual"], colorTemperature: { min: 2500, max: 6500, step: 100 } }, async () => { throw new Error("rejected"); }],
+  ]) {
+    const states = [], errors = [];
+    const track = {
+      getCapabilities: () => capabilities,
+      getSettings: () => ({ whiteBalanceMode: "continuous", colorTemperature: 4000 }),
+      applyConstraints,
+    };
+    const controls = createExposureControls(track, state => states.push(state), error => errors.push(error), { wait: async () => {} });
+    await controls.lock();
+    assert.match(states.at(-1).whiteBalanceWarning, /6000 K/);
+    assert.equal(ExposureControl({ exposure: states.at(-1) }).props.children.at(-1).props.role, "status");
+    assert.deepEqual(errors, []);
+  }
+});
+
+test("white balance failures do not block exposure and remain visible after exposure changes", async t => {
+  t.mock.method(console, "warn", () => {});
+  const states = [], errors = [];
+  const settings = { whiteBalanceMode: "continuous", colorTemperature: 4000, exposureMode: "continuous" };
+  const track = {
+    getCapabilities: () => ({
+      whiteBalanceMode: ["manual"], colorTemperature: { min: 2500, max: 6500, step: 100 },
+      exposureMode: ["manual"], exposureTime: { min: 5, max: 150, step: 5 },
+    }),
+    getSettings: () => ({ ...settings }),
+    async applyConstraints({ advanced: [value] }) {
+      if (value.colorTemperature) throw new Error("rejected");
+      Object.assign(settings, value);
+    },
+  };
+  const controls = createExposureControls(track, state => states.push(state), error => errors.push(error), { wait: async () => {} });
+  await controls.setTime(60);
+  assert.equal(settings.exposureTime, 60);
+  assert.match(states.at(-1).whiteBalanceWarning, /6000 K/);
+  assert.deepEqual(errors, []);
+});
+
+test("white balance changes after initialization are reported", async () => {
+  const states = [], errors = [];
+  const settings = { whiteBalanceMode: "continuous", colorTemperature: 4000 };
+  const track = {
+    getCapabilities: () => ({
+      whiteBalanceMode: ["manual"], colorTemperature: { min: 2500, max: 6500, step: 100 },
+      exposureMode: ["manual"], exposureTime: { min: 5, max: 150 },
+    }),
+    getSettings: () => ({ ...settings }),
+    async applyConstraints({ advanced: [value] }) {
+      Object.assign(settings, value);
+      if (value.exposureTime) settings.whiteBalanceMode = "continuous";
+    },
+  };
+  const controls = createExposureControls(track, state => states.push(state), error => errors.push(error), { wait: async () => {} });
+  await controls.lock();
+  assert.match(states.at(-1).whiteBalanceWarning, /6000 K/);
+  assert.deepEqual(errors, []);
 });
 
 test("manual exposure range respects 1/60 second, camera limits and steps", async () => {
@@ -112,6 +187,24 @@ test("manual exposure range respects 1/60 second, camera limits and steps", asyn
   assert.equal(states.at(-1).timeRange.max, 50);
   createExposureControls(makeTrack({ min: 170, max: 500, step: 10 }), state => states.push(state), error => errors.push(error));
   assert.equal(states.at(-1).timeRange, null);
+});
+
+test("initial exposure respects camera limits and steps", async () => {
+  for (const [range, expected] of [
+    [{ min: 90, max: 150, step: 10 }, 90],
+    [{ min: 5, max: 50, step: 5 }, 50],
+    [{ min: 5, max: 150, step: 10 }, 85],
+  ]) {
+    const calls = [], errors = [];
+    const track = {
+      getCapabilities: () => ({ exposureMode: ["manual"], exposureTime: range }),
+      async applyConstraints({ advanced: [value] }) { calls.push(value); },
+    };
+    const controls = createExposureControls(track, () => {}, error => errors.push(error));
+    await controls.lock();
+    assert.equal(calls[1].exposureTime, expected);
+    assert.deepEqual(errors, []);
+  }
 });
 
 test("exposure control shows only the slider for the selected mode", () => {
@@ -176,11 +269,11 @@ test("manual exposure switches modes before setting the time", async () => {
   await controls.setMode("manual");
   assert.deepEqual(calls.slice(0, 3), [
     { exposureMode: "manual" },
-    { exposureMode: "manual", exposureTime: 30 },
-    { exposureMode: "manual", exposureTime: 30 },
+    { exposureMode: "manual", exposureTime: 80 },
+    { exposureMode: "manual", exposureTime: 80 },
   ]);
   assert.equal(states.at(-1).mode, "manual");
-  assert.equal(settings.exposureTime, 30);
+  assert.equal(settings.exposureTime, 80);
   assert.deepEqual(errors, []);
 });
 
@@ -230,8 +323,8 @@ test("Chromium Android uses the first positive step when the reported minimum is
   const controls = createExposureControls(track, value => states.push(value), error => errors.push(error), { androidChromium: true });
   await controls.lock();
   assert.equal(states.at(-1).timeRange.min, 0.1);
-  assert.ok(Math.abs(states.at(-1).time - 30) < 1e-6);
-  assert.ok(Math.abs(calls[1].exposureTime - 30) < 1e-6);
+  assert.ok(Math.abs(states.at(-1).time - 80) < 1e-6);
+  assert.ok(Math.abs(calls[1].exposureTime - 80) < 1e-6);
   assert.deepEqual(errors, []);
 });
 

@@ -74,10 +74,12 @@ The camera selector is saved locally and reused; if unavailable, the default
 rear-facing camera is used and a warning is shown.
 
 Exposure compensation and manual exposure time are offered where the browser
-and camera support them. Exposure starts in auto at minimum compensation.
-Manual exposure starts at the camera's minimum and is capped at 1/60 second
-or the camera's maximum, whichever is shorter. While recording, white balance
-and exposure are frozen where the camera permits it. Some Chromium Android
+and camera support them. Exposure starts in manual at 8 ms when available,
+adjusted to the camera's supported range and steps; otherwise it uses auto at
+minimum compensation. Manual exposure is capped at 1/60 second or the camera's
+maximum, whichever is shorter. White balance is fixed at 6000 K while the
+camera is open when supported; otherwise a warning is shown. Exposure is
+frozen while recording where the camera permits it. Some Chromium Android
 cameras report mode `none` after disabling automatic exposure; when the
 reported exposure time matches, the control allows manual adjustment but asks
 you to verify it in the preview.

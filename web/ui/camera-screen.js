@@ -3,8 +3,9 @@ import { CameraIcon, KebabMenu, SunIcon, UploadIcon } from "./widgets.js";
 
 // MediaTrack exposureTime is measured in units of 100 microseconds.
 const MAX_EXPOSURE_TIME = 10000 / 60;
-const INITIAL_EXPOSURE_TIME = 30;
+const INITIAL_EXPOSURE_TIME = 60;
 const MANUAL_ISO = 100;
+const WHITE_BALANCE_TEMPERATURE = 6000;
 const CAMERA_STORAGE_KEY = "mapper3d.cameraDeviceId";
 
 const clock = seconds => `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
@@ -125,7 +126,7 @@ export function createExposureControls(track, onChange, onError, {
   }
   let state = {
     range, timeRange, autoAvailable, value: range?.min ?? 0,
-    time: timeRange?.min, mode: "auto", warning: null,
+    time: timeRange?.min, mode: "auto", warning: null, whiteBalanceWarning: null,
   };
   let manualUsable = true;
   let pending = Promise.resolve();
@@ -134,7 +135,43 @@ export function createExposureControls(track, onChange, onError, {
     return pending;
   };
   const update = changes => { state = { ...state, ...changes }; onChange(state); };
-  const apply = constraints => track.applyConstraints({ advanced: [constraints] });
+  let fixedWhiteBalance = false;
+  const apply = async constraints => {
+    await track.applyConstraints({
+      advanced: [{ ...constraints, ...(fixedWhiteBalance && { whiteBalanceMode: "manual", colorTemperature: WHITE_BALANCE_TEMPERATURE }) }],
+    });
+    if (!fixedWhiteBalance) return;
+    const matches = settings => settings.whiteBalanceMode === "manual" &&
+      Number.isFinite(settings.colorTemperature) && Math.abs(settings.colorTemperature - WHITE_BALANCE_TEMPERATURE) < 1e-6;
+    let settings = track.getSettings?.() ?? {};
+    for (const delay of [100, 200, 400]) {
+      if (matches(settings)) break;
+      await wait(delay);
+      settings = track.getSettings?.() ?? {};
+    }
+    if (!matches(settings)) {
+      fixedWhiteBalance = false;
+      update({ whiteBalanceWarning: "The camera did not confirm manual white balance at 6000 K." });
+    }
+  };
+  const initializeWhiteBalance = async () => {
+    const { min, max, step } = capabilities.colorTemperature ?? {};
+    const offset = (WHITE_BALANCE_TEMPERATURE - min) / step;
+    if (!capabilities.whiteBalanceMode?.includes("manual") || !Number.isFinite(min) || !Number.isFinite(max) ||
+        WHITE_BALANCE_TEMPERATURE < min || WHITE_BALANCE_TEMPERATURE > max ||
+        (step > 0 && Math.abs(offset - Math.round(offset)) > 1e-6)) {
+      update({ whiteBalanceWarning: "This camera cannot set white balance to 6000 K." });
+      return;
+    }
+    fixedWhiteBalance = true;
+    try {
+      await apply({});
+    } catch (error) {
+      fixedWhiteBalance = false;
+      console.warn("Could not fix white balance at 6000 K.", error);
+      update({ whiteBalanceWarning: `Could not fix white balance at 6000 K: ${error.message}` });
+    }
+  };
   const manualExposure = time => ({
     exposureMode: "manual",
     ...(time !== undefined && { exposureTime: time }),
@@ -233,19 +270,6 @@ export function createExposureControls(track, onChange, onError, {
   const selectMode = mode => mode === "manual" ? setManual(() => state.time) : setMode(mode);
   const lock = () => run(async () => {
     const settings = track.getSettings?.() ?? {};
-    if (capabilities.whiteBalanceMode?.includes("manual")) {
-      const temperatureRange = capabilities.colorTemperature;
-      const { min, max, step } = temperatureRange ?? {};
-      let colorTemperature;
-      if (Number.isFinite(settings.colorTemperature) && Number.isFinite(min) && Number.isFinite(max)) {
-        const supportedMax = step > 0 ? Math.min(max, min + Math.floor((max - min) / step + 1e-10) * step) : max;
-        if (supportedMax >= min) {
-          const bounded = Math.max(min, Math.min(supportedMax, settings.colorTemperature));
-          colorTemperature = step > 0 ? min + Math.round((bounded - min) / step) * step : bounded;
-        }
-      }
-      await apply({ whiteBalanceMode: "manual", ...(colorTemperature !== undefined && { colorTemperature }) });
-    }
     if (manualUsable && capabilities.exposureMode?.includes("manual")) {
       const fixed = Object.fromEntries(["exposureTime"].filter(k => settings[k] !== undefined).map(k => [k, settings[k]]));
       if (manualIso !== undefined) fixed.iso = manualIso;
@@ -253,12 +277,12 @@ export function createExposureControls(track, onChange, onError, {
     }
   });
   const unlock = () => run(async () => {
-    if (capabilities.whiteBalanceMode?.includes("continuous")) await apply({ whiteBalanceMode: "continuous" });
     if (state.mode === "manual") await apply(manualExposure(state.time));
     else if (range) await apply({ exposureMode: "continuous", exposureCompensation: state.value });
     else if (capabilities.exposureMode?.includes("continuous")) await apply({ exposureMode: "continuous" });
   });
   onChange(state);
+  run(initializeWhiteBalance);
   if (timeRange) {
     const requested = Math.max(timeRange.min, Math.min(timeRange.max, INITIAL_EXPOSURE_TIME));
     const initialTime = timeRange.step > 0
@@ -293,7 +317,7 @@ function useExposure(stream, onError) {
 
 export function ExposureControl({ exposure, devices = [], selectedId = "", select = () => {} }) {
   const hasExposure = exposure.range || exposure.timeRange;
-  if (!hasExposure && !devices.length) return null;
+  if (!hasExposure && !devices.length && !exposure.whiteBalanceWarning) return null;
   const manual = exposure.mode === "manual";
   return html`
     <div class="exposure">
@@ -326,6 +350,7 @@ export function ExposureControl({ exposure, devices = [], selectedId = "", selec
           </label>`}
       </div>
       ${exposure.warning && html`<span class="exposure-warning" role="status">${exposure.warning}</span>`}
+      ${exposure.whiteBalanceWarning && html`<span class="exposure-warning" role="status">${exposure.whiteBalanceWarning}</span>`}
     </div>`;
 }
 
