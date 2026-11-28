@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { frameColors } from "../web/code.js";
-import { MAX_RETAINED_TRACKS, MAX_SPOTS_PER_FRAME, SPOT_SEPARATION } from "../web/config.js";
+import { MAX_RETAINED_TRACKS, MAX_SPOTS_PER_FRAME, MIN_SPOT_CONTRAST, SPOT_SEPARATION } from "../web/config.js";
 import { consensusCount } from "../web/decode2.js";
 import { decodeTracks, PIPELINE_VERSION, scanMoving, trackFrames } from "../web/scan.js";
 import { SpotTracker } from "../web/track.js";
@@ -146,5 +146,13 @@ test("does not reuse a track cache created without the configured spot separatio
     set: async (key, value) => entries.set(key, value),
   };
   assert.deepEqual(await scanMoving([], { cache, cacheKey: "recording" }), { count: 0, period: 0, tracks: [] });
-  assert.ok(entries.has(`${oldKey}:${SPOT_SEPARATION}`));
+  assert.ok(entries.has(`${oldKey}:${SPOT_SEPARATION}:${MIN_SPOT_CONTRAST}`));
+});
+
+test("does not reuse a track cache created without the configured spot contrast", async () => {
+  const oldKey = `recording:v${PIPELINE_VERSION}:${MAX_RETAINED_TRACKS}:30:${MAX_SPOTS_PER_FRAME}:${SPOT_SEPARATION}`;
+  const entries = new Map([[oldKey, [{ samples: [] }]]]);
+  const cache = { get: async key => entries.get(key), set: async (key, value) => entries.set(key, value) };
+  assert.deepEqual(await scanMoving([], { cache, cacheKey: "recording" }), { count: 0, period: 0, tracks: [] });
+  assert.ok(entries.has(`${oldKey}:${MIN_SPOT_CONTRAST}`));
 });

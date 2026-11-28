@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { colorFeatures, colorSamplingScale } from "../web/stationary.js";
-import { MAX_SPOTS_PER_FRAME, SPOT_SEPARATION } from "../web/config.js";
+import { MAX_SPOTS_PER_FRAME, MIN_SPOT_CONTRAST, SPOT_SEPARATION } from "../web/config.js";
 import { nodePool } from "../scripts/node-pool.js";
 import { analyzeFrame } from "../web/analyze.js";
 
@@ -78,6 +78,19 @@ test("worker analysis uses the configured spot separation and supports an explic
       SPOT_SEPARATION > 5 ? 1 : 2);
     assert.equal((await pool.analyze({ width, height, data: data.slice() }, { maxSpots: 2, separation: 4 })).length, 2);
     assert.equal((await pool.analyze({ width, height, data: data.slice() }, { maxSpots: 2, separation: 7 })).length, 1);
+  } finally {
+    pool.terminate();
+  }
+});
+
+test("worker analysis uses the configured contrast and supports an explicit override", async () => {
+  const image = light(4);
+  const pool = nodePool(1);
+  const analyze = options => pool.analyze({ ...image, data: image.data.slice() }, options);
+  try {
+    assert.deepEqual(await analyze(), await analyze({ minContrast: MIN_SPOT_CONTRAST }));
+    assert.equal((await analyze({ minContrast: 1 })).length, 1);
+    assert.equal((await analyze({ minContrast: 2000 })).length, 0);
   } finally {
     pool.terminate();
   }

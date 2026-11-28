@@ -81,10 +81,11 @@ you to verify it in the preview.
 
 The scan runs locally. Frame analysis finds and tracks bright spots, then
 decodes the shared LED color sequence and reconstructs cameras and lights.
-Edit `web/config.js` to configure the maximum spots per frame, retained
-tracklets and spot separation. Higher limits can increase processing time,
-memory use and false candidates. Closely spaced or overlapping lights can
-contaminate each other's color samples. Reconstruction needs enough parallax
+Edit `web/config.js` to configure the minimum spot contrast, maximum spots per
+frame, retained tracklets and spot separation. Lowering `MIN_SPOT_CONTRAST`
+can detect dimmer spots but also adds clutter. Higher limits can increase
+processing time, memory use and false candidates. Closely spaced or overlapping
+lights can contaminate each other's color samples. Reconstruction needs enough parallax
 and non-flat structure; frames with too few known lights may be skipped.
 If reconstruction cannot find a starting pair but decoded lights are available,
 the viewer shows an approximate flat projection from the frame containing the

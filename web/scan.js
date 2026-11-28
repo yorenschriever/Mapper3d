@@ -4,7 +4,7 @@ import { decodeStationaryLights } from "./decode2.js";
 import { FRAME_SLOTS, PERIOD_MS } from "./code.js";
 import { analyzeFrame } from "./analyze.js";
 import { SpotTracker } from "./track.js";
-import { MAX_RETAINED_TRACKS, MAX_SPOTS_PER_FRAME, SPOT_SEPARATION } from "./config.js";
+import { MAX_RETAINED_TRACKS, MAX_SPOTS_PER_FRAME, MIN_SPOT_CONTRAST, SPOT_SEPARATION } from "./config.js";
 
 /**
  * Finds and decodes all lights in a stationary recording.
@@ -177,7 +177,7 @@ export function decodeTracks(tracks, { onDecoded, ...options } = {}) {
  * decoded tracklet (an index usually has several, and reflections may add more).
  */
 export async function scanMoving(frames, { cache, cacheKey, analyze, concurrency, maxTracks, minSamples, onProgress, ...options } = {}) {
-  const key = cacheKey && `${cacheKey}:v${PIPELINE_VERSION}:${maxTracks ?? MAX_RETAINED_TRACKS}:${minSamples ?? MIN_TRACK_SAMPLES}:${MAX_SPOTS_PER_FRAME}:${SPOT_SEPARATION}`;
+  const key = cacheKey && `${cacheKey}:v${PIPELINE_VERSION}:${maxTracks ?? MAX_RETAINED_TRACKS}:${minSamples ?? MIN_TRACK_SAMPLES}:${MAX_SPOTS_PER_FRAME}:${SPOT_SEPARATION}:${MIN_SPOT_CONTRAST}`;
   let tracks = key && cache ? await cache.get(key) : null;
   if (!tracks) {
     tracks = await trackFrames(typeof frames === "function" ? frames() : frames, { analyze, concurrency, maxTracks, minSamples, onProgress });
