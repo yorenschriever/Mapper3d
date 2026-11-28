@@ -49,6 +49,7 @@ export async function scanStationary(openFrames, options = {}) {
 
 /** Bump when frame analysis, tracking or descriptors change, so that cached tracks are not reused. */
 export const PIPELINE_VERSION = 7;
+export const MIN_TRACK_SAMPLES = 30;
 
 /** Maps `source` through async `fn` with up to `limit` calls in flight, yielding results in order. */
 export async function* orderedMap(source, fn, limit) {
@@ -65,7 +66,7 @@ export async function* orderedMap(source, fn, limit) {
  * (for example a worker pool); up to `concurrency` frames are analyzed at once.
  * Returns the tracklets with the most colorful samples first.
  */
-export async function trackFrames(frames, { analyze = analyzeFrame, concurrency = 1, maxTracks = MAX_RETAINED_TRACKS, minSamples = 30, minRepeat = MIN_REPEAT, onProgress } = {}) {
+export async function trackFrames(frames, { analyze = analyzeFrame, concurrency = 1, maxTracks = MAX_RETAINED_TRACKS, minSamples = MIN_TRACK_SAMPLES, minRepeat = MIN_REPEAT, onProgress } = {}) {
   // Tracks that end before they have `minSamples` described samples can never be returned, so they are dropped as they end.
   const tracker = new SpotTracker({ minSamples });
   let n = 0;
@@ -83,7 +84,7 @@ export async function trackFrames(frames, { analyze = analyzeFrame, concurrency 
 export const MIN_REPEAT = 0.1;
 
 /** Whether a tracklet's colors repeat after one code frame. Tracklets too short to judge pass. */
-function repeatsWithCode(samples, minRepeat) {
+export function repeatsWithCode(samples, minRepeat = MIN_REPEAT) {
   const colored = samples.filter(s => s.features);
   return !colored.length || repeatScore(colored, PERIOD_MS * FRAME_SLOTS) >= minRepeat;
 }
@@ -118,8 +119,9 @@ export function repeatScore(samples, lag, step = 8) {
  * Decodes tracklets; all lights share one clock, so they are folded by absolute video time.
  * In cluttered scenes the many non-light tracklets swamp the color calibration, so when that
  * decodes almost nothing it is repeated with only the tracklets that repeat with the code period.
+ * `onDecoded`, if supplied, receives the input track index and the accepted decoding.
  */
-export function decodeTracks(tracks, options = {}) {
+export function decodeTracks(tracks, { onDecoded, ...options } = {}) {
   if (!tracks.length) return { count: 0, period: 0, tracks: [] };
   const all = tracks.map((t, k) => ({ k, samples: t.samples.filter(s => s.features) }));
   const scores = all.map(({ samples }) => repeatScore(samples, PERIOD_MS * FRAME_SLOTS));
@@ -153,11 +155,16 @@ export function decodeTracks(tracks, options = {}) {
   return {
     count: best.result.count,
     period: best.result.period,
-    tracks: best.result.lights.flatMap((light, i) => light.accepted ? [{
-      index: light.index,
-      margin: light.margin,
-      samples: tracks[best.kept[i].k].samples.map(({ time, x, y }) => ({ time, x, y })),
-    }] : []),
+    tracks: best.result.lights.flatMap((light, i) => {
+      if (!light.accepted) return [];
+      const source = best.kept[i].k;
+      onDecoded?.(source, light);
+      return [{
+        index: light.index,
+        margin: light.margin,
+        samples: tracks[source].samples.map(({ time, x, y }) => ({ time, x, y })),
+      }];
+    }),
   };
 }
 
@@ -170,7 +177,7 @@ export function decodeTracks(tracks, options = {}) {
  * decoded tracklet (an index usually has several, and reflections may add more).
  */
 export async function scanMoving(frames, { cache, cacheKey, analyze, concurrency, maxTracks, minSamples, onProgress, ...options } = {}) {
-  const key = cacheKey && `${cacheKey}:v${PIPELINE_VERSION}:${maxTracks ?? MAX_RETAINED_TRACKS}:${minSamples ?? 30}:${MAX_SPOTS_PER_FRAME}:${SPOT_SEPARATION}`;
+  const key = cacheKey && `${cacheKey}:v${PIPELINE_VERSION}:${maxTracks ?? MAX_RETAINED_TRACKS}:${minSamples ?? MIN_TRACK_SAMPLES}:${MAX_SPOTS_PER_FRAME}:${SPOT_SEPARATION}`;
   let tracks = key && cache ? await cache.get(key) : null;
   if (!tracks) {
     tracks = await trackFrames(typeof frames === "function" ? frames() : frames, { analyze, concurrency, maxTracks, minSamples, onProgress });

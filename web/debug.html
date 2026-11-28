@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mapper3D spot debugger</title>
+  <link rel="stylesheet" href="debug.css">
+</head>
+<body>
+  <header>
+    <h1>Spot debugger</h1>
+    <p>Analyze a local MP4 with the same spot detector, tracker and decoder as the viewer.</p>
+    <label>Video <input id="file" type="file" accept="video/mp4,.mp4"></label>
+    <p id="status" role="status">Choose a video to begin.</p>
+    <p id="error" role="alert" hidden></p>
+  </header>
+  <main id="results" hidden>
+    <section class="video-section">
+      <div class="frame"><video id="video" playsinline muted></video><canvas id="overlay"></canvas></div>
+      <div class="controls">
+        <button id="previous" type="button" aria-label="Previous frame">◀</button>
+        <button id="play" type="button">Play</button>
+        <button id="next" type="button" aria-label="Next frame">▶</button>
+        <input id="timeline" type="range" min="0" max="0" value="0" aria-label="Video frame">
+      </div>
+      <p id="frame-info"></p>
+      <p class="legend"><span class="decoded">●</span> decoded &nbsp; <span class="described">●</span> color sampled &nbsp; <span class="plain">●</span> no color sample</p>
+      <div class="overlay-options">
+        <label><input id="labels" type="checkbox" checked> Labels</label>
+        <label><input id="only-selected" type="checkbox"> Only selected tracklet</label>
+        <label><input id="path" type="checkbox" checked> Selected path</label>
+      </div>
+      <p>Markers show tracklet numbers and decoded LED IDs. Select a marker or tracklet to see its complete path.</p>
+    </section>
+    <section class="track-section">
+      <h2>Tracklets</h2>
+      <p id="summary"></p>
+      <label>Filter <select id="filter">
+        <option value="all">All tracklets</option>
+        <option value="decoded">Decoded</option>
+        <option value="not decoded">Not decoded</option>
+        <option value="too short">Too few color samples</option>
+        <option value="non-repeating">Non-repeating</option>
+        <option value="track limit">Track limit</option>
+        <option value="decode failed">Decode failed</option>
+      </select></label>
+      <label>Search <input id="search" type="search" placeholder="Tracklet or LED number"></label>
+      <p id="selected">Select a tracklet for details.</p>
+      <div id="track-list" aria-label="Tracklets"></div>
+    </section>
+  </main>
+  <script type="module" src="debug.js"></script>
+</body>
+</html>

@@ -9,7 +9,7 @@ const LIVE_FPS = 30;
 
 const workerCount = Math.max(1, Math.min(navigator.hardwareConcurrency || 4, 16));
 
-function spawnAnalyzer() {
+export function spawnAnalyzer() {
   const worker = new Worker(new URL("./analyze-worker.js", import.meta.url), { type: "module" });
   return {
     post: (message, transfer) => worker.postMessage(message, transfer),

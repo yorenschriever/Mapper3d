@@ -4,6 +4,8 @@ import { frameColors } from "../web/code.js";
 import { MAX_RETAINED_TRACKS, MAX_SPOTS_PER_FRAME, SPOT_SEPARATION } from "../web/config.js";
 import { consensusCount } from "../web/decode2.js";
 import { decodeTracks, PIPELINE_VERSION, scanMoving, trackFrames } from "../web/scan.js";
+import { SpotTracker } from "../web/track.js";
+import { debugTracklets, indexDebugFrames } from "../web/debug-analysis.js";
 
 function evidence(index, count, weight = 10) {
   const likelihoods = frameColors(index, count).map(color => Array.from({ length: 5 }, (_, c) => c === color ? 0 : -weight));
@@ -57,11 +59,48 @@ test("decodes a count above 2000 using the fixed 120 ms period", () => {
     }
     return { samples };
   });
-  const result = decodeTracks(tracks);
+  const sources = [];
+  const result = decodeTracks(tracks, { onDecoded: (source, light) => sources.push([source, light.index]) });
   assert.equal(result.count, 2001);
   assert.equal(result.period, 120);
   assert.deepEqual([...new Set(result.tracks.map(t => t.index))].sort((a, b) => a - b),
     Array.from({ length: 8 }, (_, i) => i));
+  assert.deepEqual(sources.sort((a, b) => a[0] - b[0]), tracks.map((_, i) => [i, i]));
+});
+
+test("debug tracklets include discarded tracks and match the production retention order", async () => {
+  const input = Array.from({ length: 7 }, (_, i) => ({
+    time: i * 40,
+    spots: [
+      { x: 10, y: 10, contrast: 100, features: [1] },
+      { x: 50, y: 10, contrast: 100, features: [1] },
+      ...(i === 0 ? [{ x: 100, y: 10, contrast: 100, features: null }] : []),
+    ],
+  }));
+  const tracker = new SpotTracker({ minSamples: 0 });
+  const frames = input.map(frame => {
+    tracker.update(frame.time, frame.spots);
+    return { time: frame.time, spots: frame.spots.map(s => ({ x: s.x, y: s.y, described: !!s.features })) };
+  });
+  const tracks = debugTracklets(tracker, { minSamples: 2, maxTracks: 1 });
+  const retained = await trackFrames(input, { analyze: frame => frame.spots, minSamples: 2, maxTracks: 1 });
+  assert.equal(tracks.length, 3);
+  assert.deepEqual(tracks.map(t => t.status), ["not decoded", "track limit", "too short"]);
+  assert.deepEqual(tracks[0].track.samples, retained[0].samples);
+  indexDebugFrames(frames, tracks);
+  assert.equal(frames[0].spots[2].tracklet, tracks[2].id);
+  assert.equal(frames[6].spots[0].tracklet, tracks[0].id);
+});
+
+test("debug tracklets mark non-repeating tracks rejected by the scan", async () => {
+  const tracker = new SpotTracker({ minSamples: 0 });
+  const input = Array.from({ length: 81 }, (_, i) => ({
+    time: i * 100,
+    spots: [{ x: 10, y: 10, features: [i < 40 ? 1 : -1] }],
+  }));
+  for (const frame of input) tracker.update(frame.time, frame.spots);
+  assert.equal(debugTracklets(tracker)[0].status, "non-repeating");
+  assert.equal((await trackFrames(input, { analyze: frame => frame.spots })).length, 0);
 });
 
 test("calibrates on verified repeating tracks when short clutter overwhelms the initial calibration", () => {

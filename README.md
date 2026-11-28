@@ -57,6 +57,13 @@ HTTP on localhost, use `npm run serve -- --http` and open
 `viewer.html?model=<url>` opens a finished model directly. Scan errors show an
 explanation and expandable technical details.
 
+For spot-detection and decoding diagnostics, open `/debug.html` on the same
+server and choose a local MP4. After analysis, scrub by frame or play the video
+to see spots, tracklets and decoded IDs. The tracklet list includes those
+discarded before decoding; select one to see its path and sample counts.
+This debug page retains every tracklet and can use substantially more memory
+than a normal scan.
+
 Uploaded files require WebCodecs and a supported codec in a non-fragmented MP4.
 They are decoded sequentially using the vendored MP4Box.js demuxer. The live
 camera is analyzed at 30 fps while its preview stays at the camera's rate.
