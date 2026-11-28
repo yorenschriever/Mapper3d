@@ -13,7 +13,7 @@ config MAPPER_LED_GPIO
 config MAPPER_LED_BRIGHTNESS
     int "LED channel brightness"
     range 1 255
-    default 32
+    default 64
 
 config MAPPER_LED_COLOR_ORDER
     string "LED color order (RGB, GRB, BGR, BRG, RBG, GBR)"

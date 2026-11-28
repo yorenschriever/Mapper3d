@@ -3,7 +3,7 @@ import { CameraIcon, KebabMenu, SunIcon, UploadIcon } from "./widgets.js";
 
 // MediaTrack exposureTime is measured in units of 100 microseconds.
 const MAX_EXPOSURE_TIME = 10000 / 60;
-const INITIAL_EXPOSURE_TIME = 60;
+const INITIAL_EXPOSURE_TIME = 20;
 const MANUAL_ISO = 100;
 const WHITE_BALANCE_TEMPERATURE = 6000;
 const CAMERA_STORAGE_KEY = "mapper3d.cameraDeviceId";
