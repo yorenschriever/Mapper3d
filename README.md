@@ -79,6 +79,10 @@ tracklets and spot separation. Higher limits can increase processing time,
 memory use and false candidates. Closely spaced or overlapping lights can
 contaminate each other's color samples. Reconstruction needs enough parallax
 and non-flat structure; frames with too few known lights may be skipped.
+If reconstruction cannot find a starting pair but decoded lights are available,
+the viewer shows an approximate flat projection from the frame containing the
+most lights. It does not recover depth or correct perspective, and lights not
+visible in that frame are omitted. JSON and C++ exports identify this fallback.
 Camera drift, reflections and imperfect detections can distort positions.
 Reconstruction refines the cameras using at most `MAX_BUNDLE_POINTS`
 spatially and temporally distributed lights (50 by default, configurable in

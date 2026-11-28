@@ -6,8 +6,9 @@ import { execFileSync, spawn } from "node:child_process";
 import { once } from "node:events";
 import { nodePool } from "../scripts/node-pool.js";
 import { scanMoving, scanStationary } from "../web/scan.js";
-import { framesFromTracks, reconstruct } from "../web/reconstruct.js";
+import { framesFromTracks, modelToJson, reconstruct } from "../web/reconstruct.js";
 import { MAX_BUNDLE_POINTS } from "../web/config.js";
+import { toHpp } from "../web/ui/export.js";
 
 const video = fileURLToPath(new URL("./test_data/protocolv2.mp4", import.meta.url));
 const annotationFile = fileURLToPath(new URL("./test_data/protocolv2.leds.json", import.meta.url));
@@ -110,6 +111,33 @@ test("reconstructs lights outside the bundle-adjustment subset", { timeout: 1200
   assert.ok(logs.includes(`bundle adjustment: ${Math.min(MAX_BUNDLE_POINTS, points.length)} selected lights`));
   assert.equal(model.points.size, points.length);
   assert.ok(model.medianError < 1, `median reprojection error ${model.medianError}`);
+});
+
+test("uses a labeled single-view projection when rotation cannot establish depth", () => {
+  const width = 1280, height = 720, focal = 0.66 * width;
+  const points = Array.from({ length: 20 }, (_, i) => [(i % 5 - 2) * 0.3, (Math.floor(i / 5) - 2) * 0.25, 3 + (i * 7 % 9) * 0.1]);
+  const frames = Array.from({ length: 20 }, (_, k) => ({
+    time: k,
+    observations: new Map(points.slice(0, k === 4 ? 20 : 19).map(([x, y, z], id) => {
+      const angle = k * 0.01, X = Math.cos(angle) * x + Math.sin(angle) * z, Z = -Math.sin(angle) * x + Math.cos(angle) * z;
+      return [id, [{ x: width / 2 + focal * X / Z, y: height / 2 + focal * y / Z, margin: 10 }]];
+    })),
+  }));
+  const model = reconstruct(frames, { width, height, focal });
+  assert.equal(model.kind, "projection");
+  assert.equal(model.points.size, 20);
+  assert.equal(model.cameras.length, 0);
+  assert.ok([...model.points.values()].every(p => p[2] === 0));
+  const json = modelToJson(model, { count: 21, width, height });
+  assert.equal(json.kind, "projection");
+  assert.equal(json.medianError, null);
+  const header = toHpp(json);
+  assert.match(header, /Approximate single-view projection/);
+  assert.match(header, /NAN, NAN, NAN.*20/);
+});
+
+test("does not produce a projection when no lights were decoded", () => {
+  assert.throws(() => reconstruct([], { width: 1280, height: 720 }), /Not enough camera movement or shared lights/);
 });
 
 const denseVideo = fileURLToPath(new URL("./test_data/20261127_182023.mp4", import.meta.url));

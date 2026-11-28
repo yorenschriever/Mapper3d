@@ -8,6 +8,8 @@
 - live guidance improvement: better hints based on imu
 - live guidance improvement:
 - export hpp: pixelmap type & interpolate missing leds
+- increase led brightness and decrease default exposure time
+- fix white balance at 5000k or 6000k
 - test 2d fallback
 - clean up test cases: algorithm vs ui
 - clean up test cases: create regression tests from set of videos

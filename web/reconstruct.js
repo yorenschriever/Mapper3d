@@ -116,7 +116,18 @@ export function reconstruct(frames, { width, height, focal = 0.66 * width, log =
   }
   if (!pair) {
     const decoded = new Set(chosen.flatMap(c => [...c.keys()])).size;
-    throw new Error(`Not enough camera movement or shared lights to start the reconstruction: ${decoded} lights decoded in ${frames.length} frames, at most ${mostShared} lights seen together in two frames, largest median shift ${mostDisparity.toFixed(0)} px. Move the camera sideways around the tree (don't just rotate) and keep many lights in view.`);
+    const reference = allChosen.reduce((best, frame) => frame.size > best.size ? frame : best, new Map());
+    if (!reference.size) {
+      throw new Error(`Not enough camera movement or shared lights to start the reconstruction: ${decoded} lights decoded in ${frames.length} frames, at most ${mostShared} lights seen together in two frames, largest median shift ${mostDisparity.toFixed(0)} px. Move the camera sideways around the tree (don't just rotate) and keep many lights in view.`);
+    }
+    log(`insufficient parallax: using a single-frame projection of ${reference.size} lights`);
+    onStage("Creating an approximate flat projection");
+    onProgress(1);
+    return {
+      kind: "projection",
+      points: new Map([...reference].map(([id, o]) => [id, [o.x - cx, cy - o.y, 0]])),
+      cameras: [], focal, rms: null, medianError: null, observations: reference.size,
+    };
   }
   log(`initial pair frames ${pair.a},${pair.b}: ${pair.shared.length} shared, ${relative.ids.length} inliers, rms ${pair.rms.toFixed(2)}px`);
 
@@ -304,6 +315,7 @@ export function reconstruct(frames, { width, height, focal = 0.66 * width, log =
 export function modelToJson(model, { count, width, height }) {
   return {
     count, focal: model.focal, rms: model.rms, medianError: model.medianError, width, height,
+    ...(model.kind ? { kind: model.kind } : {}),
     points: [...model.points].sort((a, b) => a[0] - b[0]).map(([index, [x, y, z]]) => ({ index, x, y, z })),
     cameras: model.cameras.map(c => ({ time: c.time, r: c.r, t: c.t })),
   };

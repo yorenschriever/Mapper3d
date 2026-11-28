@@ -32,7 +32,9 @@ export function ModelScreen({ model: raw, onBack }) {
         <div class="top-right"><${KebabMenu} items=${items} /></div>
       </div>
       <div class="bottom-bar">
-        <div class="chip"><b>${raw.points.length}</b> of ${raw.count} lights · ${raw.cameras.length} camera poses · ${(raw.medianError ?? raw.rms).toFixed(1)} px</div>
+        ${raw.kind === "projection"
+          ? html`<div class="chip"><b>Approximate flat projection</b> · ${raw.points.length} of ${raw.count} lights · single view; depth and perspective are not recovered</div>`
+          : html`<div class="chip"><b>${raw.points.length}</b> of ${raw.count} lights · ${raw.cameras.length} camera poses · ${(raw.medianError ?? raw.rms).toFixed(1)} px</div>`}
       </div>
     </div>`;
 }
