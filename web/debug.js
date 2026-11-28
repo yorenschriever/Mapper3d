@@ -3,7 +3,7 @@ import { AnalysisPool } from "./pool.js";
 import { orderedMap } from "./scan.js";
 import { spawnAnalyzer } from "./scan-app.js";
 import { SpotTracker } from "./track.js";
-import { debugTracklets, indexDebugFrames } from "./debug-analysis.js";
+import { debugTracklets, findDebugSpot, indexDebugFrames, matchesDebugFilter } from "./debug-analysis.js";
 
 const $ = id => document.getElementById(id);
 const fileInput = $("file"), status = $("status"), error = $("error"), results = $("results");
@@ -17,6 +17,8 @@ let frames = [], tracks = [], current = 0, selected = null, url = null, videoCal
 
 const seconds = ms => (ms / 1000).toFixed(2);
 const label = track => `T${track.id}${track.decoded ? ` · LED ${track.decoded.index}` : ""}`;
+const matchesFilter = track => matchesDebugFilter(track, filter.value);
+const visibleSpot = spot => tracks[spot.tracklet] && matchesFilter(tracks[spot.tracklet]) && (!onlySelected.checked || spot.tracklet === selected);
 
 function nearestFrame(time) {
   let low = 0, high = frames.length - 1;
@@ -46,7 +48,7 @@ function renderFrame(index) {
   frameInfo.textContent = `Frame ${index + 1}/${frames.length} · ${seconds(frame.time - frames[0].time)} s · ${frame.spots.length} spots · ${frame.spots.filter(s => s.described).length} with color samples`;
   context.clearRect(0, 0, overlay.width, overlay.height);
   const scale = overlay.width / Math.max(1, overlay.clientWidth);
-  if (selected !== null && path.checked) {
+  if (selected !== null && path.checked && matchesFilter(tracks[selected])) {
     const samples = tracks[selected].track.samples;
     context.strokeStyle = "#56c8ff";
     context.lineWidth = 2 * scale;
@@ -58,8 +60,7 @@ function renderFrame(index) {
   context.textBaseline = "bottom";
   for (const spot of frame.spots) {
     const track = tracks[spot.tracklet];
-    if (!track) continue;
-    if (onlySelected.checked && spot.tracklet !== selected) continue;
+    if (!visibleSpot(spot)) continue;
     const color = track.decoded ? "#58ee7a" : spot.described ? "#ffbc4c" : "#b7c1d0";
     context.strokeStyle = color;
     context.lineWidth = (spot.tracklet === selected ? 3 : 1.5) * scale;
@@ -82,7 +83,7 @@ function updateList() {
   const query = search.value.trim().toLowerCase();
   const fragment = document.createDocumentFragment();
   for (const track of tracks) {
-    if (filter.value !== "all" && track.status !== filter.value) continue;
+    if (!matchesFilter(track)) continue;
     if (query && !`${track.id} ${track.decoded?.index ?? ""} ${label(track)}`.toLowerCase().includes(query)) continue;
     const button = document.createElement("button"), details = document.createElement("small");
     const samples = track.track.samples;
@@ -235,10 +236,10 @@ video.addEventListener("timeupdate", () => {
 overlay.addEventListener("click", event => {
   const rect = overlay.getBoundingClientRect();
   const x = (event.clientX - rect.left) * overlay.width / rect.width, y = (event.clientY - rect.top) * overlay.height / rect.height;
-  const nearby = frames[current].spots.filter(s => s.tracklet !== undefined).map(s => ({ s, distance: Math.hypot(s.x - x, s.y - y) })).sort((a, b) => a.distance - b.distance)[0];
-  if (nearby && nearby.distance <= 12 * overlay.width / rect.width) selectTrack(nearby.s.tracklet);
+  const spot = findDebugSpot(frames[current].spots, tracks, filter.value, x, y, 12 * overlay.width / rect.width);
+  if (spot) selectTrack(spot.tracklet);
 });
-filter.addEventListener("change", updateList);
+filter.addEventListener("change", () => { updateList(); if (frames.length) renderFrame(current); });
 search.addEventListener("input", updateList);
 [labels, onlySelected, path].forEach(input => input.addEventListener("change", () => { if (frames.length) renderFrame(current); }));
 window.addEventListener("resize", () => { if (frames.length && !results.hidden) renderFrame(current); });

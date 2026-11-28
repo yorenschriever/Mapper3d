@@ -1,6 +1,22 @@
 import { MAX_RETAINED_TRACKS } from "./config.js";
 import { MIN_TRACK_SAMPLES, repeatsWithCode } from "./scan.js";
 
+export function matchesDebugFilter(track, filter) {
+  return filter === "all" || track.status === filter;
+}
+
+/** Find the nearest tracklet allowed by the dropdown, including when only one is drawn. */
+export function findDebugSpot(spots, tracks, filter, x, y, radius) {
+  let nearest = null, distance = radius;
+  for (const spot of spots) {
+    const track = tracks[spot.tracklet];
+    if (!track || !matchesDebugFilter(track, filter)) continue;
+    const d = Math.hypot(spot.x - x, spot.y - y);
+    if (d <= distance && (nearest === null || d < distance)) { nearest = spot; distance = d; }
+  }
+  return nearest;
+}
+
 /** Classifies every track using the same ordering and filters as the scan pipeline. */
 export function debugTracklets(tracker, { minSamples = MIN_TRACK_SAMPLES, maxTracks = MAX_RETAINED_TRACKS } = {}) {
   const tracks = tracker.result(0).map((track, id) => {

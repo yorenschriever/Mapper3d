@@ -60,7 +60,10 @@ explanation and expandable technical details.
 For spot-detection and decoding diagnostics, open `/debug.html` on the same
 server and choose a local MP4. After analysis, scrub by frame or play the video
 to see spots, tracklets and decoded IDs. The tracklet list includes those
-discarded before decoding; select one to see its path and sample counts.
+discarded before decoding; its filter also applies to the video overlay.
+Select a tracklet to see its path and sample counts.
+When only the selected tracklet is displayed, clicking another light can still
+select it if it matches the tracklet filter.
 This debug page retains every tracklet and can use substantially more memory
 than a normal scan.
 
